@@ -1,16 +1,16 @@
 package io.legado.app.ui.widget.dialog
 
 import android.os.Bundle
-import android.util.DisplayMetrics
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.FragmentManager
 import io.legado.app.R
 import io.legado.app.base.BaseDialogFragment
+import io.legado.app.databinding.DialogPhotoViewBinding
 import io.legado.app.service.help.ReadBook
 import io.legado.app.ui.book.read.page.provider.ImageProvider
-import kotlinx.android.synthetic.main.dialog_photo_view.*
+import io.legado.app.utils.viewbindingdelegate.viewBinding
 
 
 class PhotoDialog : BaseDialogFragment() {
@@ -20,7 +20,7 @@ class PhotoDialog : BaseDialogFragment() {
         fun show(
             fragmentManager: FragmentManager,
             chapterIndex: Int,
-            src: String
+            src: String,
         ) {
             PhotoDialog().apply {
                 val bundle = Bundle()
@@ -32,10 +32,10 @@ class PhotoDialog : BaseDialogFragment() {
 
     }
 
+    private val binding by viewBinding(DialogPhotoViewBinding::bind)
+
     override fun onStart() {
         super.onStart()
-        val dm = DisplayMetrics()
-        activity?.windowManager?.defaultDisplay?.getMetrics(dm)
         dialog?.window?.setLayout(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -45,7 +45,7 @@ class PhotoDialog : BaseDialogFragment() {
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
-        savedInstanceState: Bundle?
+        savedInstanceState: Bundle?,
     ): View? {
         return inflater.inflate(R.layout.dialog_photo_view, container)
     }
@@ -56,8 +56,12 @@ class PhotoDialog : BaseDialogFragment() {
             val src = it.getString("src")
             ReadBook.book?.let { book ->
                 src?.let {
-                    ImageProvider.getImage(book, chapterIndex, src)?.let { bitmap ->
-                        photo_view.setImageBitmap(bitmap)
+                    execute {
+                        ImageProvider.getImage(book, chapterIndex, src)
+                    }.onSuccess { bitmap ->
+                        if (bitmap != null) {
+                            binding.photoView.setImageBitmap(bitmap)
+                        }
                     }
                 }
             }

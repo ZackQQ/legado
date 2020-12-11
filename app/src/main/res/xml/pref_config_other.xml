@@ -2,6 +2,13 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <io.legado.app.ui.widget.prefs.NameListPreference
+        android:key="language"
+        android:title="@string/language"
+        android:defaultValue="auto"
+        app:entries="@array/language"
+        app:entryValues="@array/language_value" />
+
     <io.legado.app.ui.widget.prefs.PreferenceCategory
         android:title="@string/main_activity"
         app:allowDividerAbove="false"
@@ -44,16 +51,15 @@
         app:iconSpaceReserved="false"
         app:layout="@layout/view_preference_category">
 
+        <io.legado.app.ui.widget.prefs.Preference
+            android:key="userAgent"
+            android:title="UserAgent" />
+
         <io.legado.app.ui.widget.prefs.SwitchPreference
             android:defaultValue="true"
             android:key="replaceEnableDefault"
             android:title="@string/replace_enable_default_t"
             android:summary="@string/replace_enable_default_s"
-            app:iconSpaceReserved="false" />
-
-        <io.legado.app.ui.widget.prefs.Preference
-            android:key="threadCount"
-            android:title="@string/threads_num_title"
             app:iconSpaceReserved="false" />
 
         <io.legado.app.ui.widget.prefs.SwitchPreference
@@ -63,6 +69,12 @@
             android:summary="@string/media_button_on_exit_summary"
             app:iconSpaceReserved="false" />
 
+        <io.legado.app.ui.widget.prefs.SwitchPreference
+            android:defaultValue="true"
+            android:key="autoClearExpired"
+            android:title="@string/auto_clear_expired"
+            android:summary="@string/auto_clear_expired_summary" />
+
         <io.legado.app.ui.widget.prefs.Preference
             android:key="webPort"
             android:title="@string/web_port_title"
@@ -70,8 +82,13 @@
 
         <io.legado.app.ui.widget.prefs.Preference
             android:key="cleanCache"
-            android:title="@string/cleanCache"
+            android:title="@string/clear_cache"
             android:summary="@string/clear_cache_summary"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.ui.widget.prefs.Preference
+            android:key="threadCount"
+            android:title="@string/threads_num_title"
             app:iconSpaceReserved="false" />
 
         <io.legado.app.ui.widget.prefs.SwitchPreference

@@ -12,10 +12,13 @@ import androidx.preference.Preference
 import io.legado.app.App
 import io.legado.app.R
 import io.legado.app.base.BasePreferenceFragment
+import io.legado.app.constant.AppConst
 import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
+import io.legado.app.databinding.DialogEditTextBinding
 import io.legado.app.help.AppConfig
 import io.legado.app.help.LauncherIconHelp
+import io.legado.app.help.ThemeConfig
 import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.theme.ATH
 import io.legado.app.ui.widget.number.NumberPickerDialog
@@ -27,8 +30,6 @@ import io.legado.app.utils.*
 @Suppress("SameParameterValue")
 class ThemeConfigFragment : BasePreferenceFragment(),
     SharedPreferences.OnSharedPreferenceChangeListener {
-
-    val items = App.INSTANCE.resources.getStringArray(R.array.default_themes).toList()
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         addPreferencesFromResource(R.xml.pref_config_theme)
@@ -48,16 +49,6 @@ class ThemeConfigFragment : BasePreferenceFragment(),
                 }
             }
         }
-        findPreference<ColorPreference>(PreferKey.cBBackground)?.let {
-            it.onSaveColor = { color ->
-                if (!ColorUtils.isColorLight(color)) {
-                    toast(R.string.day_bottom_bar_too_dark)
-                    true
-                } else {
-                    false
-                }
-            }
-        }
         findPreference<ColorPreference>(PreferKey.cNBackground)?.let {
             it.onSaveColor = { color ->
                 if (ColorUtils.isColorLight(color)) {
@@ -68,21 +59,11 @@ class ThemeConfigFragment : BasePreferenceFragment(),
                 }
             }
         }
-        findPreference<ColorPreference>(PreferKey.cNBBackground)?.let {
-            it.onSaveColor = { color ->
-                if (ColorUtils.isColorLight(color)) {
-                    toast(R.string.night_bottom_bar_too_light)
-                    true
-                } else {
-                    false
-                }
-            }
-        }
         findPreference<ColorPreference>(PreferKey.cAccent)?.let {
             it.onSaveColor = { color ->
                 val background =
                     getPrefInt(PreferKey.cBackground, getCompatColor(R.color.md_grey_100))
-                val textColor = getCompatColor(R.color.tv_text_default)
+                val textColor = getCompatColor(R.color.primaryText)
                 when {
                     ColorUtils.getColorDifference(color, background) <= 60 -> {
                         toast(R.string.accent_background_diff)
@@ -100,7 +81,7 @@ class ThemeConfigFragment : BasePreferenceFragment(),
             it.onSaveColor = { color ->
                 val background =
                     getPrefInt(PreferKey.cNBackground, getCompatColor(R.color.md_grey_900))
-                val textColor = getCompatColor(R.color.tv_text_default)
+                val textColor = getCompatColor(R.color.primaryText)
                 when {
                     ColorUtils.getColorDifference(color, background) <= 60 -> {
                         toast(R.string.accent_background_diff)
@@ -170,76 +151,51 @@ class ThemeConfigFragment : BasePreferenceFragment(),
 
     @SuppressLint("PrivateResource")
     override fun onPreferenceTreeClick(preference: Preference?): Boolean {
-        when (preference?.key) {
-            "defaultTheme" -> changeTheme()
+        when (val key = preference?.key) {
             PreferKey.barElevation -> NumberPickerDialog(requireContext())
                 .setTitle(getString(R.string.bar_elevation))
                 .setMaxValue(32)
                 .setMinValue(0)
                 .setValue(AppConfig.elevation)
                 .setCustomButton((R.string.btn_default_s)) {
-                    AppConfig.elevation =
-                        App.INSTANCE.resources.getDimension(R.dimen.design_appbar_elevation).toInt()
+                    AppConfig.elevation = AppConst.sysElevation
                     recreateActivities()
                 }
                 .show {
                     AppConfig.elevation = it
                     recreateActivities()
                 }
+            "themeList" -> ThemeListDialog().show(childFragmentManager, "themeList")
+            "saveDayTheme", "saveNightTheme" -> saveThemeAlert(key)
         }
         return super.onPreferenceTreeClick(preference)
     }
 
-    private fun changeTheme() {
-        alert(title = getString(R.string.select_theme)) {
-            items(items) { _, which ->
-                when (which) {
-                    0 -> {
-                        putPrefInt(PreferKey.cPrimary, getCompatColor(R.color.md_grey_100))
-                        putPrefInt(PreferKey.cAccent, getCompatColor(R.color.md_deep_orange_600))
-                        putPrefInt(PreferKey.cBackground, getCompatColor(R.color.md_grey_100))
-                        putPrefInt(PreferKey.cBBackground, getCompatColor(R.color.md_grey_200))
-                        AppConfig.isNightTheme = false
-                    }
-                    1 -> {
-                        putPrefInt(PreferKey.cNPrimary, getCompatColor(R.color.md_grey_900))
-                        putPrefInt(PreferKey.cNAccent, getCompatColor(R.color.md_deep_orange_600))
-                        putPrefInt(PreferKey.cNBackground, getCompatColor(R.color.md_grey_900))
-                        putPrefInt(PreferKey.cNBBackground, getCompatColor(R.color.md_grey_900))
-                        AppConfig.isNightTheme = true
-                    }
-                    2 -> {
-                        putPrefInt(PreferKey.cPrimary, getCompatColor(R.color.md_light_blue_500))
-                        putPrefInt(PreferKey.cAccent, getCompatColor(R.color.md_pink_800))
-                        putPrefInt(PreferKey.cBackground, getCompatColor(R.color.md_grey_100))
-                        putPrefInt(PreferKey.cBBackground, getCompatColor(R.color.md_grey_200))
-                        AppConfig.isNightTheme = false
-                    }
-                    3 -> {
-                        putPrefInt(PreferKey.cPrimary, getCompatColor(R.color.white))
-                        putPrefInt(PreferKey.cAccent, getCompatColor(R.color.md_deep_orange_600))
-                        putPrefInt(PreferKey.cBackground, getCompatColor(R.color.white))
-                        putPrefInt(PreferKey.cBBackground, getCompatColor(R.color.white))
-                        AppConfig.isNightTheme = false
-                    }
-                    4 -> {
-                        putPrefInt(PreferKey.cNPrimary, getCompatColor(R.color.black))
-                        putPrefInt(PreferKey.cNAccent, getCompatColor(R.color.md_deep_orange_600))
-                        putPrefInt(PreferKey.cNBackground, getCompatColor(R.color.black))
-                        putPrefInt(PreferKey.cNBBackground, getCompatColor(R.color.black))
-                        AppConfig.isNightTheme = true
+    @SuppressLint("InflateParams")
+    private fun saveThemeAlert(key: String) {
+        alert(R.string.theme_name) {
+            val alertBinding = DialogEditTextBinding.inflate(layoutInflater)
+            customView = alertBinding.root
+            okButton {
+                alertBinding.editView.text?.toString()?.let { themeName ->
+                    when (key) {
+                        "saveDayTheme" -> {
+                            ThemeConfig.saveDayTheme(requireContext(), themeName)
+                        }
+                        "saveNightTheme" -> {
+                            ThemeConfig.saveNightTheme(requireContext(), themeName)
+                        }
                     }
                 }
-                App.INSTANCE.applyDayNight()
-                recreateActivities()
             }
-        }.show().applyTint()
+            noButton()
+        }.show()
     }
 
     private fun upTheme(isNightTheme: Boolean) {
         if (AppConfig.isNightTheme == isNightTheme) {
             listView.post {
-                App.INSTANCE.applyTheme()
+                ThemeConfig.applyTheme(requireContext())
                 recreateActivities()
             }
         }

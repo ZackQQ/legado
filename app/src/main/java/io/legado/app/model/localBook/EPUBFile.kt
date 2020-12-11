@@ -57,7 +57,7 @@ class EPUBFile(val book: io.legado.app.data.entities.Book) {
     init {
         try {
             val epubReader = EpubReader()
-            val inputStream = if (book.bookUrl.isContentPath()) {
+            val inputStream = if (book.bookUrl.isContentScheme()) {
                 val uri = Uri.parse(book.bookUrl)
                 App.INSTANCE.contentResolver.openInputStream(uri)
             } else {
@@ -67,8 +67,8 @@ class EPUBFile(val book: io.legado.app.data.entities.Book) {
             if (book.coverUrl.isNullOrEmpty()) {
                 book.coverUrl = FileUtils.getPath(
                     App.INSTANCE.externalFilesDir,
-                    "${MD5Utils.md5Encode16(book.bookUrl)}.jpg",
-                    "covers"
+                    "covers",
+                    "${MD5Utils.md5Encode16(book.bookUrl)}.jpg"
                 )
             }
             if (!File(book.coverUrl!!).exists()) {

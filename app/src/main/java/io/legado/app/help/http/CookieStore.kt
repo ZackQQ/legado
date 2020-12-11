@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package io.legado.app.help.http
 
 import android.text.TextUtils
@@ -5,19 +7,17 @@ import com.franmontiel.persistentcookiejar.persistence.CookiePersistor
 import com.franmontiel.persistentcookiejar.persistence.SerializableCookie
 import io.legado.app.App
 import io.legado.app.data.entities.Cookie
-import io.legado.app.help.coroutine.Coroutine
+import io.legado.app.help.http.api.CookieManager
+import io.legado.app.utils.NetworkUtils
 
+object CookieStore : CookiePersistor, CookieManager {
 
-object CookieStore : CookiePersistor {
-
-    fun setCookie(url: String, cookie: String?) {
-        Coroutine.async {
-            val cookieBean = Cookie(url, cookie ?: "")
-            App.db.cookieDao().insert(cookieBean)
-        }
+    override fun setCookie(url: String, cookie: String?) {
+        val cookieBean = Cookie(NetworkUtils.getSubDomain(url), cookie ?: "")
+        App.db.cookieDao.insert(cookieBean)
     }
 
-    fun replaceCookie(url: String, cookie: String) {
+    override fun replaceCookie(url: String, cookie: String) {
         if (TextUtils.isEmpty(url) || TextUtils.isEmpty(cookie)) {
             return
         }
@@ -32,16 +32,16 @@ object CookieStore : CookiePersistor {
         }
     }
 
-    fun getCookie(url: String): String {
-        val cookieBean = App.db.cookieDao().get(url)
+    override fun getCookie(url: String): String {
+        val cookieBean = App.db.cookieDao.get(NetworkUtils.getSubDomain(url))
         return cookieBean?.cookie ?: ""
     }
 
-    fun removeCookie(url: String) {
-        App.db.cookieDao().delete(url)
+    override fun removeCookie(url: String) {
+        App.db.cookieDao.delete(NetworkUtils.getSubDomain(url))
     }
 
-    private fun cookieToMap(cookie: String): MutableMap<String, String> {
+    override fun cookieToMap(cookie: String): MutableMap<String, String> {
         val cookieMap = mutableMapOf<String, String>()
         if (cookie.isBlank()) {
             return cookieMap
@@ -61,7 +61,7 @@ object CookieStore : CookiePersistor {
         return cookieMap
     }
 
-    private fun mapToCookie(cookieMap: Map<String, String>?): String? {
+    override fun mapToCookie(cookieMap: Map<String, String>?): String? {
         if (cookieMap == null || cookieMap.isEmpty()) {
             return null
         }
@@ -80,7 +80,7 @@ object CookieStore : CookiePersistor {
 
     override fun loadAll(): MutableList<okhttp3.Cookie> {
         val cookies = arrayListOf<okhttp3.Cookie>()
-        App.db.cookieDao().getOkHttpCookies().forEach {
+        App.db.cookieDao.getOkHttpCookies().forEach {
             val serializedCookie = it.cookie
             SerializableCookie().decode(serializedCookie)?.let { ck ->
                 cookies.add(ck)
@@ -94,17 +94,17 @@ object CookieStore : CookiePersistor {
         cookies?.forEach {
             mCookies.add(Cookie(createCookieKey(it), SerializableCookie().encode(it)))
         }
-        App.db.cookieDao().insert(*mCookies.toTypedArray())
+        App.db.cookieDao.insert(*mCookies.toTypedArray())
     }
 
     override fun removeAll(cookies: MutableCollection<okhttp3.Cookie>?) {
         cookies?.forEach {
-            App.db.cookieDao().delete(createCookieKey(it))
+            App.db.cookieDao.delete(createCookieKey(it))
         }
     }
 
     override fun clear() {
-        App.db.cookieDao().deleteOkHttp()
+        App.db.cookieDao.deleteOkHttp()
     }
 
     private fun createCookieKey(cookie: okhttp3.Cookie): String {
