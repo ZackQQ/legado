@@ -1,7 +1,11 @@
 package io.legado.app.lib.webdav
 
 import io.legado.app.help.http.HttpHelper
+import io.legado.app.utils.await
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.Jsoup
 import rxhttp.wrapper.param.RxHttp
 import rxhttp.wrapper.param.toInputStream
@@ -64,7 +68,7 @@ class WebDav(urlStr: String) {
                 this.exists = false
                 return false
             }
-            response.body()?.let {
+            response.body?.let {
                 @Suppress("BlockingMethodInNonBlockingContext")
                 if (it.string().isNotEmpty()) {
                     return true
@@ -83,7 +87,7 @@ class WebDav(urlStr: String) {
     suspend fun listFiles(propsList: ArrayList<String> = ArrayList()): List<WebDav> {
         propFindResponse(propsList)?.let { response ->
             if (response.isSuccessful) {
-                response.body()?.let { body ->
+                response.body?.let { body ->
                     @Suppress("BlockingMethodInNonBlockingContext")
                     return parseDir(body.string())
                 }
@@ -107,7 +111,7 @@ class WebDav(urlStr: String) {
         httpUrl?.let { url ->
             // 添加RequestBody对象，可以只返回的属性。如果设为null，则会返回全部属性
             // 注意：尽量手动指定需要返回的属性。若返回全部属性，可能后由于Prop.java里没有该属性名，而崩溃。
-            val requestBody = RequestBody.create(MediaType.parse("text/plain"), requestPropsStr)
+            val requestBody = requestPropsStr.toRequestBody("text/plain".toMediaType())
             val request = Request.Builder()
                 .url(url)
                 .method("PROPFIND", requestBody)
@@ -116,7 +120,7 @@ class WebDav(urlStr: String) {
                 request.header("Authorization", Credentials.basic(it.user, it.pass))
             }
             request.header("Depth", if (depth < 0) "infinity" else depth.toString())
-            return HttpHelper.awaitResponse(request.build())
+            return HttpHelper.client.newCall(request.build()).await()
         }
         return null
     }
@@ -197,9 +201,8 @@ class WebDav(urlStr: String) {
     suspend fun upload(localPath: String, contentType: String? = null): Boolean {
         val file = File(localPath)
         if (!file.exists()) return false
-        val mediaType = contentType?.let { MediaType.parse(it) }
         // 务必注意RequestBody不要嵌套，不然上传时内容可能会被追加多余的文件信息
-        val fileBody = RequestBody.create(mediaType, file)
+        val fileBody = file.asRequestBody(contentType?.toMediaType())
         httpUrl?.let {
             val request = Request.Builder()
                 .url(it)
@@ -210,9 +213,8 @@ class WebDav(urlStr: String) {
     }
 
     suspend fun upload(byteArray: ByteArray, contentType: String? = null): Boolean {
-        val mediaType = contentType?.let { MediaType.parse(it) }
         // 务必注意RequestBody不要嵌套，不然上传时内容可能会被追加多余的文件信息
-        val fileBody = RequestBody.create(mediaType, byteArray)
+        val fileBody = byteArray.toRequestBody(contentType?.toMediaType())
         httpUrl?.let {
             val request = Request.Builder()
                 .url(it)
@@ -232,7 +234,7 @@ class WebDav(urlStr: String) {
         HttpAuth.auth?.let {
             requestBuilder.header("Authorization", Credentials.basic(it.user, it.pass))
         }
-        val response = HttpHelper.awaitResponse(requestBuilder.build())
+        val response = HttpHelper.client.newCall(requestBuilder.build()).await()
         return response.isSuccessful
     }
 

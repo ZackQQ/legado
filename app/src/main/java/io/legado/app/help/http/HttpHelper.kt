@@ -1,17 +1,20 @@
 package io.legado.app.help.http
 
+import io.legado.app.utils.msg
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.*
-import retrofit2.Retrofit
-import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Proxy
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 @Suppress("unused")
 object HttpHelper {
+
+    private val proxyClientCache: ConcurrentHashMap<String, OkHttpClient> by lazy {
+        ConcurrentHashMap()
+    }
 
     val client: OkHttpClient by lazy {
 
@@ -37,69 +40,30 @@ object HttpHelper {
         builder.build()
     }
 
-    suspend fun awaitResponse(request: Request): Response = suspendCancellableCoroutine { block ->
-        val call = client.newCall(request)
-
-        block.invokeOnCancellation {
-            call.cancel()
-        }
-
-        call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                block.resumeWithException(e)
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                block.resume(response)
-            }
-        })
-    }
-
-    inline fun <reified T> getApiService(
-        baseUrl: String,
-        encode: String? = null,
-        proxy: String? = null
-    ): T {
-        return getRetrofit(baseUrl, encode, proxy).create(T::class.java)
-    }
-
-    fun getRetrofit(
-        baseUrl: String,
-        encode: String? = null,
-        proxy: String? = null
-    ): Retrofit {
-        return Retrofit.Builder().baseUrl(baseUrl)
-            //增加返回值为字符串的支持(以实体类返回)
-            .addConverterFactory(EncodeConverter(encode))
-            .client(getProxyClient(proxy))
-            .build()
-    }
-
+    /**
+     * 缓存代理okHttp
+     */
     fun getProxyClient(proxy: String? = null): OkHttpClient {
         if (proxy.isNullOrBlank()) {
             return client
         }
+        proxyClientCache[proxy]?.let {
+            return it
+        }
         val r = Regex("(http|socks4|socks5)://(.*):(\\d{2,5})(@.*@.*)?")
         val ms = r.findAll(proxy)
         val group = ms.first()
-        val type: String     //直接连接
-        val host: String  //代理服务器hostname
-        val port: Int            //代理服务器port
         var username = ""       //代理服务器验证用户名
         var password = ""       //代理服务器验证密码
-        type = if (group.groupValues[1] == "http") {
-            "http"
-        } else {
-            "socks"
-        }
-        host = group.groupValues[2]
-        port = group.groupValues[3].toInt()
+        val type = if (group.groupValues[1] == "http") "http" else "socks"
+        val host = group.groupValues[2]
+        val port = group.groupValues[3].toInt()
         if (group.groupValues[4] != "") {
             username = group.groupValues[4].split("@")[1]
             password = group.groupValues[4].split("@")[2]
         }
-        val builder = client.newBuilder()
         if (type != "direct" && host != "") {
+            val builder = client.newBuilder()
             if (type == "http") {
                 builder.proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port)))
             } else {
@@ -108,14 +72,16 @@ object HttpHelper {
             if (username != "" && password != "") {
                 builder.proxyAuthenticator { _, response -> //设置代理服务器账号密码
                     val credential: String = Credentials.basic(username, password)
-                    response.request().newBuilder()
+                    response.request.newBuilder()
                         .header("Proxy-Authorization", credential)
                         .build()
                 }
             }
-
+            val proxyClient = builder.build()
+            proxyClientCache[proxy] = proxyClient
+            return proxyClient
         }
-        return builder.build()
+        return client
     }
 
     private fun getHeaderInterceptor(): Interceptor {
@@ -130,21 +96,22 @@ object HttpHelper {
         }
     }
 
-    suspend fun ajax(params: AjaxWebView.AjaxParams): Res =
+    suspend fun ajax(params: AjaxWebView.AjaxParams): StrResponse =
         suspendCancellableCoroutine { block ->
             val webView = AjaxWebView()
             block.invokeOnCancellation {
                 webView.destroyWebView()
             }
             webView.callback = object : AjaxWebView.Callback() {
-                override fun onResult(response: Res) {
+                override fun onResult(response: StrResponse) {
+
                     if (!block.isCompleted)
                         block.resume(response)
                 }
 
                 override fun onError(error: Throwable) {
                     if (!block.isCompleted)
-                        block.resume(Res(params.url, error.localizedMessage))
+                        block.resume(StrResponse.success(error.msg, params.url))
                 }
             }
             webView.load(params)
