@@ -1,22 +1,21 @@
 package io.legado.app.ui.association
 
 import android.app.Application
-import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.MutableLiveData
 import com.jayway.jsonpath.JsonPath
-import io.legado.app.App
 import io.legado.app.R
 import io.legado.app.base.BaseViewModel
+import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSource
 import io.legado.app.help.AppConfig
 import io.legado.app.help.SourceHelp
 import io.legado.app.help.storage.OldRule
 import io.legado.app.help.storage.Restore
-import io.legado.app.utils.*
+import io.legado.app.utils.isAbsUrl
+import io.legado.app.utils.isJsonArray
+import io.legado.app.utils.isJsonObject
 import rxhttp.wrapper.param.RxHttp
 import rxhttp.wrapper.param.toText
-import java.io.File
 
 class ImportBookSourceViewModel(app: Application) : BaseViewModel(app) {
     var groupName: String? = null
@@ -27,6 +26,24 @@ class ImportBookSourceViewModel(app: Application) : BaseViewModel(app) {
     val checkSources = arrayListOf<BookSource?>()
     val selectStatus = arrayListOf<Boolean>()
 
+    fun isSelectAll(): Boolean {
+        selectStatus.forEach {
+            if (!it) {
+                return false
+            }
+        }
+        return true
+    }
+
+    fun selectCount(): Int {
+        var count = 0
+        selectStatus.forEach {
+            if (it) {
+                count++
+            }
+        }
+        return count
+    }
 
     fun importSelect(finally: () -> Unit) {
         execute {
@@ -51,32 +68,6 @@ class ImportBookSourceViewModel(app: Application) : BaseViewModel(app) {
             SourceHelp.insertBookSource(*selectSource.toTypedArray())
         }.onFinally {
             finally.invoke()
-        }
-    }
-
-
-    fun importSourceFromFilePath(path: String) {
-        execute {
-            val content = if (path.isContentScheme()) {
-                //在前面被解码了，如果不进行编码，中文会无法识别
-                val newPath = Uri.encode(path, ":/.")
-                DocumentFile.fromSingleUri(context, Uri.parse(newPath))?.readText(context)
-            } else {
-                val file = File(path)
-                if (file.exists()) {
-                    file.readText()
-                } else {
-                    null
-                }
-            }
-            if (content != null) {
-                importSource(content)
-            } else {
-                errorLiveData.postValue(context.getString(R.string.error_read_file))
-            }
-        }.onError {
-            it.printStackTrace()
-            errorLiveData.postValue(context.getString(R.string.error_read_file))
         }
     }
 
@@ -134,9 +125,9 @@ class ImportBookSourceViewModel(app: Application) : BaseViewModel(app) {
     private fun comparisonSource() {
         execute {
             allSources.forEach {
-                val has = App.db.bookSourceDao.getBookSource(it.bookSourceUrl)
-                checkSources.add(has)
-                selectStatus.add(has == null)
+                val source = appDb.bookSourceDao.getBookSource(it.bookSourceUrl)
+                checkSources.add(source)
+                selectStatus.add(source == null || source.lastUpdateTime < it.lastUpdateTime)
             }
             successLiveData.postValue(allSources.size)
         }

@@ -1,13 +1,11 @@
 package io.legado.app.ui.main.my
 
-import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import androidx.preference.Preference
-import io.legado.app.App
 import io.legado.app.R
 import io.legado.app.base.BaseFragment
 import io.legado.app.base.BasePreferenceFragment
@@ -15,16 +13,15 @@ import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
 import io.legado.app.databinding.FragmentMyConfigBinding
 import io.legado.app.help.AppConfig
+import io.legado.app.help.ThemeConfig
 import io.legado.app.lib.theme.ATH
 import io.legado.app.service.WebService
 import io.legado.app.ui.about.AboutActivity
 import io.legado.app.ui.about.DonateActivity
 import io.legado.app.ui.about.ReadRecordActivity
 import io.legado.app.ui.book.source.manage.BookSourceActivity
-import io.legado.app.ui.config.BackupRestoreUi
 import io.legado.app.ui.config.ConfigActivity
 import io.legado.app.ui.config.ConfigViewModel
-import io.legado.app.ui.filepicker.FilePickerDialog
 import io.legado.app.ui.replace.ReplaceRuleActivity
 import io.legado.app.ui.widget.dialog.TextDialog
 import io.legado.app.ui.widget.prefs.NameListPreference
@@ -33,7 +30,7 @@ import io.legado.app.ui.widget.prefs.SwitchPreference
 import io.legado.app.utils.*
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 
-class MyFragment : BaseFragment(R.layout.fragment_my_config), FilePickerDialog.CallBack {
+class MyFragment : BaseFragment(R.layout.fragment_my_config) {
 
     private val binding by viewBinding(FragmentMyConfigBinding::bind)
 
@@ -57,11 +54,6 @@ class MyFragment : BaseFragment(R.layout.fragment_my_config), FilePickerDialog.C
                 TextDialog.show(childFragmentManager, text, TextDialog.MD)
             }
         }
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        BackupRestoreUi.onActivityResult(requestCode, resultCode, data)
     }
 
     /**
@@ -90,13 +82,13 @@ class MyFragment : BaseFragment(R.layout.fragment_my_config), FilePickerDialog.C
             }
             findPreference<NameListPreference>(PreferKey.themeMode)?.let {
                 it.setOnPreferenceChangeListener { _, _ ->
-                    view?.post { App.INSTANCE.applyDayNight() }
+                    view?.post { ThemeConfig.applyDayNight(requireContext()) }
                     true
                 }
             }
             if (AppConfig.isGooglePlay) {
                 findPreference<PreferenceCategory>("aboutCategory")
-                    ?.removePreference(findPreference("donate"))
+                    ?.removePreferenceRecursively("donate")
             }
         }
 
@@ -135,15 +127,15 @@ class MyFragment : BaseFragment(R.layout.fragment_my_config), FilePickerDialog.C
             when (preference?.key) {
                 "bookSourceManage" -> startActivity<BookSourceActivity>()
                 "replaceManage" -> startActivity<ReplaceRuleActivity>()
-                "setting" -> startActivity<ConfigActivity>(
-                    Pair("configType", ConfigViewModel.TYPE_CONFIG)
-                )
-                "web_dav_setting" -> startActivity<ConfigActivity>(
-                    Pair("configType", ConfigViewModel.TYPE_WEB_DAV_CONFIG)
-                )
-                "theme_setting" -> startActivity<ConfigActivity>(
-                    Pair("configType", ConfigViewModel.TYPE_THEME_CONFIG)
-                )
+                "setting" -> startActivity<ConfigActivity> {
+                    putExtra("configType", ConfigViewModel.TYPE_CONFIG)
+                }
+                "web_dav_setting" -> startActivity<ConfigActivity> {
+                    putExtra("configType", ConfigViewModel.TYPE_WEB_DAV_CONFIG)
+                }
+                "theme_setting" -> startActivity<ConfigActivity> {
+                    putExtra("configType", ConfigViewModel.TYPE_THEME_CONFIG)
+                }
                 "readRecord" -> startActivity<ReadRecordActivity>()
                 "donate" -> startActivity<DonateActivity>()
                 "about" -> startActivity<AboutActivity>()

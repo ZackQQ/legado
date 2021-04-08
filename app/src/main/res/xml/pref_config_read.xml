@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <io.legado.app.ui.widget.prefs.NameListPreference
-        android:key="screenDirection"
+        android:key="screenOrientation"
         android:defaultValue="0"
         android:title="@string/screen_direction"
         android:entries="@array/screen_direction_title"
@@ -38,6 +38,13 @@
         android:defaultValue="false"
         android:title="@string/pt_hide_navigation_bar"
         android:key="hideNavigationBar"
+        app:iconSpaceReserved="false"
+        app:isBottomBackground="true" />
+
+    <io.legado.app.ui.widget.prefs.SwitchPreference
+        android:defaultValue="false"
+        android:title="@string/use_zh_layout"
+        android:key="useZhLayout"
         app:iconSpaceReserved="false"
         app:isBottomBackground="true" />
 
@@ -77,7 +84,7 @@
         app:isBottomBackground="true" />
 
     <io.legado.app.ui.widget.prefs.SwitchPreference
-        android:defaultValue="false"
+        android:defaultValue="true"
         android:title="@string/selectText"
         android:key="selectText"
         app:iconSpaceReserved="false"
@@ -93,6 +100,13 @@
     <io.legado.app.ui.widget.prefs.Preference
         android:title="@string/click_regional_config"
         android:key="clickRegionalConfig"
+        app:iconSpaceReserved="false"
+        app:isBottomBackground="true" />
+
+    <io.legado.app.ui.widget.prefs.SwitchPreference
+        android:defaultValue="false"
+        android:key="fullScreenGesturesSupport"
+        android:title="@string/full_screen_gestures_support"
         app:iconSpaceReserved="false"
         app:isBottomBackground="true" />
 

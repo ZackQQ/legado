@@ -5,19 +5,36 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.widget.PopupMenu
+import androidx.recyclerview.widget.DiffUtil
 import io.legado.app.R
+import io.legado.app.base.adapter.DiffRecyclerAdapter
 import io.legado.app.base.adapter.ItemViewHolder
-import io.legado.app.base.adapter.SimpleRecyclerAdapter
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.databinding.ItemChangeSourceBinding
 import io.legado.app.utils.invisible
 import io.legado.app.utils.visible
-import org.jetbrains.anko.sdk27.listeners.onClick
-import org.jetbrains.anko.sdk27.listeners.onLongClick
+import splitties.views.onLongClick
 
 
-class ChangeSourceAdapter(context: Context, val callBack: CallBack) :
-    SimpleRecyclerAdapter<SearchBook, ItemChangeSourceBinding>(context) {
+class ChangeSourceAdapter(
+    context: Context,
+    val viewModel: ChangeSourceViewModel,
+    val callBack: CallBack
+) :
+    DiffRecyclerAdapter<SearchBook, ItemChangeSourceBinding>(context) {
+
+    override val diffItemCallback: DiffUtil.ItemCallback<SearchBook>
+        get() = object : DiffUtil.ItemCallback<SearchBook>() {
+            override fun areItemsTheSame(oldItem: SearchBook, newItem: SearchBook): Boolean {
+                return oldItem.bookUrl == newItem.bookUrl
+            }
+
+            override fun areContentsTheSame(oldItem: SearchBook, newItem: SearchBook): Boolean {
+                return oldItem.originName == newItem.originName
+                        && oldItem.getDisplayLastChapterTitle() == newItem.getDisplayLastChapterTitle()
+            }
+
+        }
 
     override fun getViewBinding(parent: ViewGroup): ItemChangeSourceBinding {
         return ItemChangeSourceBinding.inflate(inflater, parent, false)
@@ -33,6 +50,7 @@ class ChangeSourceAdapter(context: Context, val callBack: CallBack) :
         binding.apply {
             if (bundle == null) {
                 tvOrigin.text = item.originName
+                tvAuthor.text = item.author
                 tvLast.text = item.getDisplayLastChapterTitle()
                 if (callBack.bookUrl == item.bookUrl) {
                     ivChecked.visible()
@@ -51,14 +69,13 @@ class ChangeSourceAdapter(context: Context, val callBack: CallBack) :
     }
 
     override fun registerListener(holder: ItemViewHolder, binding: ItemChangeSourceBinding) {
-        holder.itemView.onClick {
+        holder.itemView.setOnClickListener {
             getItem(holder.layoutPosition)?.let {
                 callBack.changeTo(it)
             }
         }
         holder.itemView.onLongClick {
             showMenu(holder.itemView, getItem(holder.layoutPosition))
-            true
         }
     }
 

@@ -1,41 +1,38 @@
 package io.legado.app.ui.qrcode
 
-import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
-import android.view.View
-import cn.bingoogolapple.qrcode.core.QRCodeView
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.zxing.Result
+import com.king.zxing.CameraScan.OnScanResultCallback
 import io.legado.app.R
 import io.legado.app.base.BaseActivity
 import io.legado.app.databinding.ActivityQrcodeCaptureBinding
-import io.legado.app.help.permission.Permissions
-import io.legado.app.help.permission.PermissionsCompat
+import io.legado.app.utils.QRCodeUtils
 import io.legado.app.utils.readBytes
-import org.jetbrains.anko.toast
 
-class QrCodeActivity : BaseActivity<ActivityQrcodeCaptureBinding>(), QRCodeView.Delegate {
+class QrCodeActivity : BaseActivity<ActivityQrcodeCaptureBinding>(), OnScanResultCallback {
 
-    private val requestQrImage = 202
-    private var flashlightIsOpen: Boolean = false
+    private val selectQrImage = registerForActivityResult(ActivityResultContracts.GetContent()) {
+        it.readBytes(this)?.let { bytes ->
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            onScanResultCallback(QRCodeUtils.parseCodeResult(bitmap))
+        }
+    }
 
     override fun getViewBinding(): ActivityQrcodeCaptureBinding {
         return ActivityQrcodeCaptureBinding.inflate(layoutInflater)
     }
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
-        binding.zXingView.setDelegate(this)
-        binding.fabFlashlight.setOnClickListener {
-            if (flashlightIsOpen) {
-                flashlightIsOpen = false
-                binding.zXingView.closeFlashlight()
-            } else {
-                flashlightIsOpen = true
-                binding.zXingView.openFlashlight()
-            }
-        }
+        val fTag = "qrCodeFragment"
+        val qrCodeFragment = QrCodeFragment()
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.fl_content, qrCodeFragment, fTag)
+            .commit()
     }
 
     override fun onCompatCreateOptionsMenu(menu: Menu): Boolean {
@@ -45,73 +42,17 @@ class QrCodeActivity : BaseActivity<ActivityQrcodeCaptureBinding>(), QRCodeView.
 
     override fun onCompatOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.action_choose_from_gallery -> {
-                val intent = Intent(Intent.ACTION_GET_CONTENT)
-                intent.addCategory(Intent.CATEGORY_OPENABLE)
-                intent.type = "image/*"
-                startActivityForResult(intent, requestQrImage)
-            }
+            R.id.action_choose_from_gallery -> selectQrImage.launch("image/*")
         }
         return super.onCompatOptionsItemSelected(item)
     }
 
-    override fun onStart() {
-        super.onStart()
-        startCamera()
-    }
-
-    private fun startCamera() {
-        PermissionsCompat.Builder(this)
-            .addPermissions(*Permissions.Group.CAMERA)
-            .rationale(R.string.qr_per)
-            .onGranted {
-                binding.zXingView.visibility = View.VISIBLE
-                //TODO 显示扫描框，并开始识别
-                binding.zXingView.startSpotAndShowRect()
-            }.request()
-    }
-
-    override fun onStop() {
-        //TODO 关闭摄像头预览，并且隐藏扫描框
-        binding.zXingView.stopCamera()
-        super.onStop()
-    }
-
-    override fun onDestroy() {
-        //TODO 销毁二维码扫描控件
-        binding.zXingView.onDestroy()
-        super.onDestroy()
-    }
-
-    override fun onScanQRCodeSuccess(result: String) {
+    override fun onScanResultCallback(result: Result?): Boolean {
         val intent = Intent()
-        intent.putExtra("result", result)
+        intent.putExtra("result", result?.text)
         setResult(RESULT_OK, intent)
         finish()
-    }
-
-    override fun onCameraAmbientBrightnessChanged(isDark: Boolean) {
-
-    }
-
-    override fun onScanQRCodeOpenCameraError() {
-        toast("打开相机失败")
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        data?.data?.let {
-            //TODO 显示扫描框，并开始识别
-            binding.zXingView.startSpotAndShowRect()
-
-            if (resultCode == Activity.RESULT_OK && requestCode == requestQrImage) {
-                // 本来就用到 QRCodeView 时可直接调 QRCodeView 的方法，走通用的回调
-                it.readBytes(this)?.let { bytes ->
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    binding.zXingView.decodeQRCode(bitmap)
-                }
-            }
-        }
+        return true
     }
 
 }

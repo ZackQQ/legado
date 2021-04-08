@@ -5,14 +5,14 @@ import android.view.*
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.Toolbar
 import androidx.fragment.app.FragmentManager
-import androidx.recyclerview.widget.DiffUtil
+import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import io.legado.app.App
 import io.legado.app.R
 import io.legado.app.base.BaseDialogFragment
 import io.legado.app.constant.AppPattern
 import io.legado.app.constant.PreferKey
+import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.databinding.DialogChangeSourceBinding
@@ -46,7 +46,7 @@ class ChangeSourceDialog : BaseDialogFragment(),
     private val binding by viewBinding(DialogChangeSourceBinding::bind)
     private val groups = linkedSetOf<String>()
     private var callBack: CallBack? = null
-    private lateinit var viewModel: ChangeSourceViewModel
+    private val viewModel: ChangeSourceViewModel by viewModels()
     lateinit var adapter: ChangeSourceAdapter
 
     override fun onStart() {
@@ -61,7 +61,6 @@ class ChangeSourceDialog : BaseDialogFragment(),
         savedInstanceState: Bundle?
     ): View? {
         callBack = activity as? CallBack
-        viewModel = getViewModel(ChangeSourceViewModel::class.java)
         return inflater.inflate(R.layout.dialog_change_source, container)
     }
 
@@ -78,21 +77,23 @@ class ChangeSourceDialog : BaseDialogFragment(),
 
     private fun showTitle() {
         binding.toolBar.title = viewModel.name
-        binding.toolBar.subtitle = getString(R.string.author_show, viewModel.author)
+        binding.toolBar.subtitle = viewModel.author
     }
 
     private fun initMenu() {
         binding.toolBar.inflateMenu(R.menu.change_source)
         binding.toolBar.menu.applyTint(requireContext())
         binding.toolBar.setOnMenuItemClickListener(this)
-        binding.toolBar.menu.findItem(R.id.menu_load_info)?.isChecked =
-            AppConfig.changeSourceLoadInfo
-        binding.toolBar.menu.findItem(R.id.menu_load_toc)?.isChecked = AppConfig.changeSourceLoadToc
-
+        binding.toolBar.menu.findItem(R.id.menu_check_author)
+            ?.isChecked = AppConfig.changeSourceCheckAuthor
+        binding.toolBar.menu.findItem(R.id.menu_load_info)
+            ?.isChecked = AppConfig.changeSourceLoadInfo
+        binding.toolBar.menu.findItem(R.id.menu_load_toc)
+            ?.isChecked = AppConfig.changeSourceLoadToc
     }
 
     private fun initRecyclerView() {
-        adapter = ChangeSourceAdapter(requireContext(), this)
+        adapter = ChangeSourceAdapter(requireContext(), viewModel, this)
         binding.recyclerView.layoutManager = LinearLayoutManager(context)
         binding.recyclerView.addItemDecoration(VerticalDivider(requireContext()))
         binding.recyclerView.adapter = adapter
@@ -145,11 +146,9 @@ class ChangeSourceDialog : BaseDialogFragment(),
             binding.toolBar.menu.applyTint(requireContext())
         })
         viewModel.searchBooksLiveData.observe(viewLifecycleOwner, {
-            val diffResult = DiffUtil.calculateDiff(DiffCallBack(adapter.getItems(), it))
             adapter.setItems(it)
-            diffResult.dispatchUpdatesTo(adapter)
         })
-        App.db.bookSourceDao.liveGroupEnabled().observe(this, {
+        appDb.bookSourceDao.liveGroupEnabled().observe(this, {
             groups.clear()
             it.map { group ->
                 groups.addAll(group.splitNotBlank(AppPattern.splitGroupRegex))
@@ -163,6 +162,11 @@ class ChangeSourceDialog : BaseDialogFragment(),
 
     override fun onMenuItemClick(item: MenuItem?): Boolean {
         when (item?.itemId) {
+            R.id.menu_check_author -> {
+                AppConfig.changeSourceCheckAuthor = !item.isChecked
+                item.isChecked = !item.isChecked
+                viewModel.loadDbSearchBook()
+            }
             R.id.menu_load_toc -> {
                 putPrefBoolean(PreferKey.changeSourceLoadToc, !item.isChecked)
                 item.isChecked = !item.isChecked
@@ -193,7 +197,7 @@ class ChangeSourceDialog : BaseDialogFragment(),
         val book = searchBook.toBook()
         book.upInfoFromOld(callBack?.oldBook)
         callBack?.changeTo(book)
-        dismiss()
+        dismissAllowingStateLoss()
     }
 
     override val bookUrl: String?

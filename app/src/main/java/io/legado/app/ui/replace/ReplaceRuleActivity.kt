@@ -2,21 +2,22 @@ package io.legado.app.ui.replace
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.Intent
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.SubMenu
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.SearchView
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.LiveData
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
-import io.legado.app.App
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
 import io.legado.app.constant.AppPattern
+import io.legado.app.data.appDb
 import io.legado.app.data.entities.ReplaceRule
 import io.legado.app.databinding.ActivityReplaceRuleBinding
 import io.legado.app.databinding.DialogEditTextBinding
@@ -27,16 +28,16 @@ import io.legado.app.lib.theme.ATH
 import io.legado.app.lib.theme.primaryTextColor
 import io.legado.app.service.help.ReadBook
 import io.legado.app.ui.association.ImportReplaceRuleActivity
-import io.legado.app.ui.filepicker.FilePicker
-import io.legado.app.ui.filepicker.FilePickerDialog
+import io.legado.app.ui.document.FilePicker
+import io.legado.app.ui.document.FilePickerParam
+import io.legado.app.ui.qrcode.QrCodeResult
 import io.legado.app.ui.replace.edit.ReplaceEditActivity
 import io.legado.app.ui.widget.SelectActionBar
+import io.legado.app.ui.widget.dialog.TextDialog
 import io.legado.app.ui.widget.recycler.DragSelectTouchHelper
 import io.legado.app.ui.widget.recycler.ItemTouchCallback
 import io.legado.app.ui.widget.recycler.VerticalDivider
 import io.legado.app.utils.*
-import org.jetbrains.anko.startActivity
-import org.jetbrains.anko.toast
 import java.io.File
 
 /**
@@ -45,25 +46,59 @@ import java.io.File
 class ReplaceRuleActivity : VMBaseActivity<ActivityReplaceRuleBinding, ReplaceRuleViewModel>(),
     SearchView.OnQueryTextListener,
     PopupMenu.OnMenuItemClickListener,
-    FilePickerDialog.CallBack,
     SelectActionBar.CallBack,
     ReplaceRuleAdapter.CallBack {
-    override val viewModel: ReplaceRuleViewModel
-        get() = getViewModel(ReplaceRuleViewModel::class.java)
+    override val viewModel: ReplaceRuleViewModel by viewModels()
     private val importRecordKey = "replaceRuleRecordKey"
-    private val importRequestCode = 132
-    private val exportRequestCode = 65
     private lateinit var adapter: ReplaceRuleAdapter
+    private lateinit var searchView: SearchView
     private var groups = hashSetOf<String>()
     private var groupMenu: SubMenu? = null
     private var replaceRuleLiveData: LiveData<List<ReplaceRule>>? = null
     private var dataInit = false
+    private val qrCodeResult = registerForActivityResult(QrCodeResult()) {
+        it ?: return@registerForActivityResult
+        startActivity<ImportReplaceRuleActivity> {
+            putExtra("source", it)
+        }
+    }
+    private val editActivity =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (it.resultCode == RESULT_OK) {
+                setResult(RESULT_OK)
+            }
+        }
+    private val importDoc = registerForActivityResult(FilePicker()) { uri ->
+        kotlin.runCatching {
+            uri?.readText(this)?.let {
+                val dataKey = IntentDataHelp.putData(it)
+                startActivity<ImportReplaceRuleActivity> {
+                    putExtra("dataKey", dataKey)
+                }
+            }
+        }.onFailure {
+            toastOnUi("readTextError:${it.localizedMessage}")
+        }
+    }
+    private val exportDir = registerForActivityResult(FilePicker()) { uri ->
+        uri ?: return@registerForActivityResult
+        if (uri.isContentScheme()) {
+            DocumentFile.fromTreeUri(this, uri)?.let {
+                viewModel.exportSelection(adapter.getSelection(), it)
+            }
+        } else {
+            uri.path?.let {
+                viewModel.exportSelection(adapter.getSelection(), File(it))
+            }
+        }
+    }
 
     override fun getViewBinding(): ActivityReplaceRuleBinding {
         return ActivityReplaceRuleBinding.inflate(layoutInflater)
     }
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
+        searchView = binding.titleBar.findViewById(R.id.search_view)
         initRecyclerView()
         initSearchView()
         initSelectActionView()
@@ -101,13 +136,11 @@ class ReplaceRuleActivity : VMBaseActivity<ActivityReplaceRuleBinding, ReplaceRu
     }
 
     private fun initSearchView() {
-        binding.titleBar.findViewById<SearchView>(R.id.search_view).let {
-            ATH.setTint(it, primaryTextColor)
-            it.onActionViewExpanded()
-            it.queryHint = getString(R.string.replace_purify_search)
-            it.clearFocus()
-            it.setOnQueryTextListener(this)
-        }
+        ATH.setTint(searchView, primaryTextColor)
+        searchView.onActionViewExpanded()
+        searchView.queryHint = getString(R.string.replace_purify_search)
+        searchView.clearFocus()
+        searchView.setOnQueryTextListener(this)
     }
 
     override fun selectAll(selectAll: Boolean) {
@@ -140,26 +173,33 @@ class ReplaceRuleActivity : VMBaseActivity<ActivityReplaceRuleBinding, ReplaceRu
         }.show()
     }
 
-    private fun observeReplaceRuleData(key: String? = null) {
+    private fun observeReplaceRuleData(searchKey: String? = null) {
         dataInit = false
         replaceRuleLiveData?.removeObservers(this)
-        replaceRuleLiveData = if (key.isNullOrEmpty()) {
-            App.db.replaceRuleDao.liveDataAll()
-        } else {
-            App.db.replaceRuleDao.liveDataSearch(key)
-        }
-        replaceRuleLiveData?.observe(this, {
-            if (dataInit) {
-                setResult(Activity.RESULT_OK)
+        replaceRuleLiveData = when {
+            searchKey.isNullOrEmpty() -> {
+                appDb.replaceRuleDao.liveDataAll()
             }
-            adapter.setItems(it)
-            dataInit = true
-            upCountView()
-        })
+            searchKey.startsWith("group:") -> {
+                val key = searchKey.substringAfter("group:")
+                appDb.replaceRuleDao.liveDataGroupSearch("%$key%")
+            }
+            else -> {
+                appDb.replaceRuleDao.liveDataSearch("%$searchKey%")
+            }
+        }.apply {
+            observe(this@ReplaceRuleActivity, {
+                if (dataInit) {
+                    setResult(Activity.RESULT_OK)
+                }
+                adapter.setItems(it, adapter.diffItemCallBack)
+                dataInit = true
+            })
+        }
     }
 
     private fun observeGroupData() {
-        App.db.replaceRuleDao.liveGroup().observe(this, {
+        appDb.replaceRuleDao.liveGroup().observe(this, {
             groups.clear()
             it.map { group ->
                 groups.addAll(group.splitNotBlank(AppPattern.splitGroupRegex))
@@ -171,17 +211,22 @@ class ReplaceRuleActivity : VMBaseActivity<ActivityReplaceRuleBinding, ReplaceRu
     override fun onCompatOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.menu_add_replace_rule ->
-                ReplaceEditActivity.show(this)
+                editActivity.launch(ReplaceEditActivity.startIntent(this))
             R.id.menu_group_manage ->
                 GroupManageDialog().show(supportFragmentManager, "groupManage")
 
             R.id.menu_del_selection -> viewModel.delSelection(adapter.getSelection())
-            R.id.menu_import_source_onLine -> showImportDialog()
-            R.id.menu_import_source_local -> FilePicker
-                .selectFile(this, importRequestCode, allowExtensions = arrayOf("txt", "json"))
+            R.id.menu_import_onLine -> showImportDialog()
+            R.id.menu_import_local -> importDoc.launch(
+                FilePickerParam(
+                    mode = FilePicker.FILE,
+                    allowExtensions = arrayOf("txt", "json")
+                )
+            )
+            R.id.menu_import_qr -> qrCodeResult.launch(null)
+            R.id.menu_help -> showHelp()
             else -> if (item.groupId == R.id.replace_group) {
-                binding.titleBar.findViewById<SearchView>(R.id.search_view)
-                    .setQuery(item.title, true)
+                searchView.setQuery("group:${item.title}", true)
             }
         }
         return super.onCompatOptionsItemSelected(item)
@@ -191,7 +236,7 @@ class ReplaceRuleActivity : VMBaseActivity<ActivityReplaceRuleBinding, ReplaceRu
         when (item?.itemId) {
             R.id.menu_enable_selection -> viewModel.enableSelection(adapter.getSelection())
             R.id.menu_disable_selection -> viewModel.disableSelection(adapter.getSelection())
-            R.id.menu_export_selection -> FilePicker.selectFolder(this, exportRequestCode)
+            R.id.menu_export_selection -> exportDir.launch(null)
         }
         return false
     }
@@ -218,7 +263,7 @@ class ReplaceRuleActivity : VMBaseActivity<ActivityReplaceRuleBinding, ReplaceRu
                     aCache.put(importRecordKey, cacheUrls.joinToString(","))
                 }
             }
-            customView = alertBinding.root
+            customView { alertBinding.root }
             okButton {
                 val text = alertBinding.editView.text?.toString()
                 text?.let {
@@ -226,51 +271,27 @@ class ReplaceRuleActivity : VMBaseActivity<ActivityReplaceRuleBinding, ReplaceRu
                         cacheUrls.add(0, it)
                         aCache.put(importRecordKey, cacheUrls.joinToString(","))
                     }
-                    startActivity<ImportReplaceRuleActivity>("source" to it)
+                    startActivity<ImportReplaceRuleActivity> {
+                        putExtra("source", it)
+                    }
                 }
             }
             cancelButton()
         }.show()
     }
 
+    private fun showHelp() {
+        val text = String(assets.open("help/replaceRuleHelp.md").readBytes())
+        TextDialog.show(supportFragmentManager, text, TextDialog.MD)
+    }
+
     override fun onQueryTextChange(newText: String?): Boolean {
-        observeReplaceRuleData("%$newText%")
+        observeReplaceRuleData(newText)
         return false
     }
 
     override fun onQueryTextSubmit(query: String?): Boolean {
         return false
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        when (requestCode) {
-            importRequestCode -> if (resultCode == Activity.RESULT_OK) {
-                data?.data?.let { uri ->
-                    try {
-                        uri.readText(this)?.let {
-                            val dataKey = IntentDataHelp.putData(it)
-                            startActivity<ImportReplaceRuleActivity>("dataKey" to dataKey)
-                        }
-                    } catch (e: Exception) {
-                        toast("readTextError:${e.localizedMessage}")
-                    }
-                }
-            }
-            exportRequestCode -> if (resultCode == RESULT_OK) {
-                data?.data?.let { uri ->
-                    if (uri.isContentScheme()) {
-                        DocumentFile.fromTreeUri(this, uri)?.let {
-                            viewModel.exportSelection(adapter.getSelection(), it)
-                        }
-                    } else {
-                        uri.path?.let {
-                            viewModel.exportSelection(adapter.getSelection(), File(it))
-                        }
-                    }
-                }
-            }
-        }
     }
 
     override fun onDestroy() {
@@ -297,7 +318,7 @@ class ReplaceRuleActivity : VMBaseActivity<ActivityReplaceRuleBinding, ReplaceRu
 
     override fun edit(rule: ReplaceRule) {
         setResult(RESULT_OK)
-        ReplaceEditActivity.show(this, rule.id)
+        editActivity.launch(ReplaceEditActivity.startIntent(this, rule.id))
     }
 
     override fun toTop(rule: ReplaceRule) {

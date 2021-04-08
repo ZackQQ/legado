@@ -1,14 +1,15 @@
 package io.legado.app.ui.association
 
 import android.os.Bundle
+import androidx.activity.viewModels
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
 import io.legado.app.constant.Theme
 import io.legado.app.databinding.ActivityTranslucenceBinding
 import io.legado.app.help.IntentDataHelp
 import io.legado.app.lib.dialogs.alert
-import io.legado.app.utils.getViewModel
-import org.jetbrains.anko.toast
+
+import io.legado.app.utils.toastOnUi
 
 class ImportRssSourceActivity :
     VMBaseActivity<ActivityTranslucenceBinding, ImportRssSourceViewModel>(
@@ -20,7 +21,7 @@ class ImportRssSourceActivity :
     }
 
     override val viewModel: ImportRssSourceViewModel
-        get() = getViewModel(ImportRssSourceViewModel::class.java)
+            by viewModels()
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         binding.rotateLoading.show()
@@ -50,22 +51,14 @@ class ImportRssSourceActivity :
             viewModel.importSource(it)
             return
         }
-        intent.getStringExtra("filePath")?.let {
-            viewModel.importSourceFromFilePath(it)
-            return
-        }
         intent.data?.let {
             when (it.path) {
                 "/importonline" -> it.getQueryParameter("src")?.let { url ->
-                    if (url.startsWith("http", false)) {
-                        viewModel.importSource(url)
-                    } else {
-                        viewModel.importSourceFromFilePath(url)
-                    }
+                    viewModel.importSource(url)
                 }
                 else -> {
                     binding.rotateLoading.hide()
-                    toast(R.string.wrong_format)
+                    toastOnUi(R.string.wrong_format)
                     finish()
                 }
             }

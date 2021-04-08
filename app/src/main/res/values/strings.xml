@@ -191,8 +191,8 @@
     <string name="flow_sys">Follow system</string>
     <string name="add">Add</string>
     <string name="import_book_source">Import book sources</string>
-    <string name="import_book_source_local">Import local sources</string>
-    <string name="import_book_source_on_line">Import online sources</string>
+    <string name="import_local">Import local</string>
+    <string name="import_on_line">Import online</string>
     <string name="replace_rule_title">Replacement</string>
     <string name="replace_rule_edit">Edit replacement rule</string>
     <string name="replace_rule">Pattern</string>
@@ -215,7 +215,7 @@
     <string name="select_action">Selection action</string>
     <string name="select_all">Select all</string>
     <string name="select_all_count">Select all(%1$d/%2$d)</string>
-    <string name="select_cancel_count">Cancel(%1$d/%2$d)</string>
+    <string name="select_cancel_count">Cancel select all(%1$d/%2$d)</string>
     <string name="dark_theme">Dark mode</string>
     <string name="welcome">Welcome page</string>
     <string name="download_start">Download start</string>
@@ -485,6 +485,7 @@
     <string name="no">No</string>
     <string name="sure">OK</string>
     <string name="sure_del">Are you sure to delete it?</string>
+    <string name="sure_del_any">Are you sure to delete %s?</string>
     <string name="sure_del_all_book">Are you sure to delete all books？</string>
     <string name="sure_del_download_book">Do you want to delete the downloaded book chapters at the same time?</string>
     <string name="qr_per">Scan QR code requires Camera permissions</string>
@@ -693,6 +694,7 @@
     <string name="information">Information</string>
     <string name="switchLayout">Switch Layout</string>
     <string name="text_font_weight_converter">Text font weight switching</string>
+    <string name="full_screen_gestures_support">Full screen gestures support</string>
 
     <!--color-->
     <string name="primary">Primary</string>
@@ -782,7 +784,8 @@
     <string name="style_name">样式名称:</string>
     <string name="empty_msg_import_book">点击右上角文件夹图标,选择文件夹</string>
     <string name="scan_folder">智能扫描</string>
-    <string name="copy_url">拷贝URL</string>
+    <string name="copy_book_url">拷贝书籍URL</string>
+    <string name="copy_toc_url">拷贝目录URL</string>
     <string name="no_book">没有书籍</string>
     <string name="keep_original_name">保留原名</string>
     <string name="click_regional_config">点击区域设置</string>
@@ -799,5 +802,29 @@
     <string name="current_progress_exceeds_cloud">当前进度超过云端进度,是否同步?</string>
     <string name="sync_book_progress_t">同步阅读进度</string>
     <string name="sync_book_progress_s">进入退出阅读界面时同步阅读进度</string>
+    <string name="create_bookmark_error">创建书签失败</string>
+    <string name="single_url">单URL</string>
+    <string name="export_bookshelf">导出书单</string>
+    <string name="import_bookshelf">导入书单</string>
+    <string name="pre_download">预下载</string>
+    <string name="pre_download_s">预先下载10章正文</string>
+    <string name="sort_enable">启用排序</string>
+    <string name="background_image">背景图片</string>
+    <string name="export_folder">导出文件夹</string>
+    <string name="export_charset">导出编码</string>
+    <string name="export_to_web_dav">导出到WebDav</string>
+    <string name="reverse_content">Reverse content</string>
+    <string name="debug">Debug</string>
+    <string name="crash_log">Crash log</string>
+    <string name="use_zh_layout">使用自定义中文分行</string>
+    <string name="image_style">Image style</string>
+    <string name="system_tts">System TTS</string>
+    <string name="export_type">导出格式</string>
+    <string name="checkAuthor">校验作者</string>
+    <string name="search_src">搜索源码</string>
+    <string name="boo_src">书籍源码</string>
+    <string name="toc_src">目录源码</string>
+    <string name="content_src">正文源码</string>
+    <string name="list_src">列表源码</string>
 
 </resources>

@@ -9,10 +9,13 @@ import android.util.Log
 import android.view.View
 import io.legado.app.R
 import io.legado.app.constant.PreferKey
+import io.legado.app.data.entities.Bookmark
 import io.legado.app.help.ReadBookConfig
 import io.legado.app.lib.theme.accentColor
 import io.legado.app.service.help.ReadBook
-import io.legado.app.ui.book.read.page.entities.*
+import io.legado.app.ui.book.read.page.entities.TextChar
+import io.legado.app.ui.book.read.page.entities.TextLine
+import io.legado.app.ui.book.read.page.entities.TextPage
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.book.read.page.provider.ImageProvider
 import io.legado.app.ui.book.read.page.provider.TextPageFactory
@@ -27,7 +30,7 @@ import kotlin.math.min
  * 阅读内容界面
  */
 class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
-    var selectAble = context.getPrefBoolean(PreferKey.textSelectAble)
+    var selectAble = context.getPrefBoolean(PreferKey.textSelectAble, true)
     var upView: ((TextPage) -> Unit)? = null
     private val selectedPaint by lazy {
         Paint().apply {
@@ -39,7 +42,6 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     private val visibleRect = RectF()
     private val selectStart = arrayOf(0, 0, 0)
     private val selectEnd = arrayOf(0, 0, 0)
-    private var textChapter: TextChapter? = null
     var textPage: TextPage = TextPage()
         private set
 
@@ -51,9 +53,8 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         callBack = activity as CallBack
     }
 
-    fun setContent(pageData: PageData) {
-        this.textChapter = pageData.textChapter
-        this.textPage = pageData.textPage
+    fun setContent(textPage: TextPage) {
+        this.textPage = textPage
         invalidate()
     }
 
@@ -112,19 +113,16 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         val lineTop = textLine.lineTop + relativeOffset
         val lineBase = textLine.lineBase + relativeOffset
         val lineBottom = textLine.lineBottom + relativeOffset
-        if (textLine.isImage) {
-            drawImage(canvas, textLine, lineTop, lineBottom)
-        } else {
-            drawChars(
-                canvas,
-                textLine.textChars,
-                lineTop,
-                lineBase,
-                lineBottom,
-                isTitle = textLine.isTitle,
-                isReadAloud = textLine.isReadAloud
-            )
-        }
+        drawChars(
+            canvas,
+            textLine.textChars,
+            lineTop,
+            lineBase,
+            lineBottom,
+            textLine.isTitle,
+            textLine.isReadAloud,
+            textLine.isImage
+        )
     }
 
     /**
@@ -138,16 +136,21 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         lineBottom: Float,
         isTitle: Boolean,
         isReadAloud: Boolean,
+        isImageLine: Boolean
     ) {
         val textPaint = if (isTitle) {
-            textChapter?.titlePaint ?: ChapterProvider.titlePaint
+            ChapterProvider.titlePaint
         } else {
-            textChapter?.contentPaint ?: ChapterProvider.contentPaint
+            ChapterProvider.contentPaint
         }
         textPaint.color =
             if (isReadAloud) context.accentColor else ReadBookConfig.textColor
         textChars.forEach {
-            canvas.drawText(it.charData, it.start, lineBase, textPaint)
+            if (it.isImage) {
+                drawImage(canvas, it, lineTop, lineBottom, isImageLine)
+            } else {
+                canvas.drawText(it.charData, it.start, lineBase, textPaint)
+            }
             if (it.selected) {
                 canvas.drawRect(it.start, lineTop, it.end, lineBottom, selectedPaint)
             }
@@ -159,18 +162,24 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      */
     private fun drawImage(
         canvas: Canvas,
-        textLine: TextLine,
+        textChar: TextChar,
         lineTop: Float,
         lineBottom: Float,
+        isImageLine: Boolean
     ) {
-        textLine.textChars.forEach { textChar ->
-            ReadBook.book?.let { book ->
-                val rectF = RectF(textChar.start, lineTop, textChar.end, lineBottom)
-                ImageProvider.getImage(book, textPage.chapterIndex, textChar.charData, true)
-                    ?.let {
-                        canvas.drawBitmap(it, null, rectF, null)
+        ReadBook.book?.let { book ->
+            ImageProvider.getImage(book, textPage.chapterIndex, textChar.charData, true)
+                ?.let {
+                    val rectF = if (isImageLine) {
+                        RectF(textChar.start, lineTop, textChar.end, lineBottom)
+                    } else {
+                        /*以宽度为基准保持图片的原始比例叠加，当div为负数时，允许高度比字符更高*/
+                        val h = (textChar.end - textChar.start) / it.width * it.height
+                        val div = (lineBottom - lineTop - h) / 2
+                        RectF(textChar.start, lineTop + div, textChar.end, lineBottom - div)
                     }
-            }
+                    canvas.drawBitmap(it, null, rectF, null)
+                }
         }
     }
 
@@ -190,14 +199,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             pageOffset = min(0, offset)
         } else if (pageOffset > 0) {
             pageFactory.moveToPrev(false)
-            textPage = pageFactory.curData.textPage
+            textPage = pageFactory.curPage
             pageOffset -= textPage.height.toInt()
             upView?.invoke(textPage)
             contentDescription = textPage.text
         } else if (pageOffset < -textPage.height) {
             pageOffset += textPage.height.toInt()
             pageFactory.moveToNext(false)
-            textPage = pageFactory.curData.textPage
+            textPage = pageFactory.curPage
             upView?.invoke(textPage)
             contentDescription = textPage.text
         }
@@ -308,15 +317,19 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             }
             Log.e("y", "$y")
             for ((lineIndex, textLine) in relativePage(relativePos).textLines.withIndex()) {
-                if (y > textLine.lineTop + relativeOffset && y < textLine.lineBottom + relativeOffset) {
+                if (y > textLine.lineTop + relativeOffset
+                    && y < textLine.lineBottom + relativeOffset
+                ) {
                     Log.e("line", "$relativePos  $lineIndex")
                     for ((charIndex, textChar) in textLine.textChars.withIndex()) {
                         if (x > textChar.start && x < textChar.end) {
                             Log.e("char", "$relativePos  $lineIndex $charIndex")
-                            if (selectEnd[0] != relativePos || selectEnd[1] != lineIndex || selectEnd[2] != charIndex) {
-                                if (selectToInt(relativePos, lineIndex, charIndex) < selectToInt(
-                                        selectStart
-                                    )
+                            if (selectEnd[0] != relativePos
+                                || selectEnd[1] != lineIndex
+                                || selectEnd[2] != charIndex
+                            ) {
+                                if (selectToInt(relativePos, lineIndex, charIndex)
+                                    < selectToInt(selectStart)
                                 ) {
                                     return
                                 }
@@ -342,8 +355,8 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         selectStart[0] = relativePage
         selectStart[1] = lineIndex
         selectStart[2] = charIndex
-        val textLine = relativePage(relativePage).textLines[lineIndex]
-        val textChar = textLine.textChars[charIndex]
+        val textLine = relativePage(relativePage).getLine(lineIndex)
+        val textChar = textLine.getTextChar(charIndex)
         upSelectedStart(
             textChar.start,
             textLine.lineBottom + relativeOffset(relativePage),
@@ -359,8 +372,8 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         selectEnd[0] = relativePage
         selectEnd[1] = lineIndex
         selectEnd[2] = charIndex
-        val textLine = relativePage(relativePage).textLines[lineIndex]
-        val textChar = textLine.textChars[charIndex]
+        val textLine = relativePage(relativePage).getLine(lineIndex)
+        val textChar = textLine.getTextChar(charIndex)
         upSelectedEnd(textChar.end, textLine.lineBottom + relativeOffset(relativePage))
         upSelectChars()
     }
@@ -476,6 +489,25 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             return stringBuilder.toString()
         }
 
+    fun createBookmark(): Bookmark? {
+        val page = relativePage(selectStart[0])
+        page.getTextChapter()?.let { chapter ->
+            val chapterPos = chapter.getReadLength(page.index) +
+                    page.getSelectStartLength(selectStart[1], selectStart[2])
+            ReadBook.book?.let { book ->
+                return Bookmark(
+                    bookUrl = book.bookUrl,
+                    bookName = book.name,
+                    chapterIndex = page.chapterIndex,
+                    chapterPos = chapterPos,
+                    chapterName = chapter.title,
+                    bookText = selectedText
+                )
+            }
+        }
+        return null
+    }
+
     private fun selectToInt(page: Int, line: Int, char: Int): Int {
         return page * 10000000 + line * 100000 + char
     }
@@ -488,15 +520,15 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         return when (relativePos) {
             0 -> pageOffset.toFloat()
             1 -> pageOffset + textPage.height
-            else -> pageOffset + textPage.height + pageFactory.nextData.textPage.height
+            else -> pageOffset + textPage.height + pageFactory.nextPage.height
         }
     }
 
     private fun relativePage(relativePos: Int): TextPage {
         return when (relativePos) {
             0 -> textPage
-            1 -> pageFactory.nextData.textPage
-            else -> pageFactory.nextPlusData.textPage
+            1 -> pageFactory.nextPage
+            else -> pageFactory.nextPlusPage
         }
     }
 

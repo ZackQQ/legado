@@ -3,7 +3,7 @@ package io.legado.app.ui.book.read.page.provider
 import android.graphics.Bitmap
 import io.legado.app.data.entities.Book
 import io.legado.app.help.BookHelp
-import io.legado.app.model.localBook.EPUBFile
+import io.legado.app.model.localBook.EpubFile
 import io.legado.app.utils.BitmapUtils
 import io.legado.app.utils.FileUtils
 import kotlinx.coroutines.runBlocking
@@ -36,7 +36,7 @@ object ImageProvider {
         val vFile = BookHelp.getImage(book, src)
         if (!vFile.exists()) {
             if (book.isEpub()) {
-                EPUBFile.getImage(book, src)?.use { input ->
+                EpubFile.getImage(book, src)?.use { input ->
                     val newFile = FileUtils.createFileIfNotExist(vFile.absolutePath)
                     FileOutputStream(newFile).use { output ->
                         input.copyTo(output)
@@ -61,6 +61,7 @@ object ImageProvider {
         }
     }
 
+    @Synchronized
     fun clearAllCache() {
         cache.forEach { indexCache ->
             indexCache.value.forEach {
@@ -70,6 +71,7 @@ object ImageProvider {
         cache.clear()
     }
 
+    @Synchronized
     fun clearOut(chapterIndex: Int) {
         cache.forEach { indexCache ->
             if (indexCache.key !in chapterIndex - 1..chapterIndex + 1) {

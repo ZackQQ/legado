@@ -5,11 +5,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.lifecycle.MutableLiveData
-import io.legado.app.App
-import io.legado.app.R
 import io.legado.app.base.BaseViewModel
 import io.legado.app.constant.AppPattern
 import io.legado.app.constant.PreferKey
+import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.SearchBook
@@ -21,7 +20,7 @@ import io.legado.app.utils.getPrefString
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
-import org.jetbrains.anko.debug
+import splitties.init.appCtx
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
 
@@ -39,7 +38,7 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
     private val searchBooks = CopyOnWriteArraySet<SearchBook>()
     private var postTime = 0L
     private val sendRunnable = Runnable { upAdapter() }
-    private val searchGroup get() = App.INSTANCE.getPrefString("searchGroup") ?: ""
+    private val searchGroup get() = appCtx.getPrefString("searchGroup") ?: ""
 
     @Volatile
     private var searchIndex = -1
@@ -64,14 +63,15 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
         execute {
             searchBooks.clear()
             upAdapter()
-            App.db.searchBookDao.getChangeSourceSearch(name, author, searchGroup).let {
-                searchBooks.addAll(it)
-                if (it.size <= 1) {
-                    upAdapter()
-                    startSearch()
-                } else {
-                    upAdapter()
-                }
+            val sbs = if (AppConfig.changeSourceCheckAuthor) {
+                appDb.searchBookDao.getChangeSourceSearch(name, author, searchGroup)
+            } else {
+                appDb.searchBookDao.getChangeSourceSearch(name, "", searchGroup)
+            }
+            searchBooks.addAll(sbs)
+            searchBooksLiveData.postValue(searchBooks.toList())
+            if (sbs.size <= 1) {
+                startSearch()
             }
         }
     }
@@ -85,12 +85,13 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
             searchBooksLiveData.postValue(books.sortedBy { it.originOrder })
         } else {
             handler.removeCallbacks(sendRunnable)
-            handler.postDelayed(sendRunnable, 500 - System.currentTimeMillis() + postTime)
+            handler.postDelayed(sendRunnable, 500)
         }
     }
 
     private fun searchFinish(searchBook: SearchBook) {
-        App.db.searchBookDao.insert(searchBook)
+        if (searchBooks.contains(searchBook)) return
+        appDb.searchBookDao.insert(searchBook)
         if (screenKey.isEmpty()) {
             searchBooks.add(searchBook)
         } else if (searchBook.name.contains(screenKey)) {
@@ -101,11 +102,14 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
 
     private fun startSearch() {
         execute {
+            appDb.searchBookDao.clear(name, author)
+            searchBooks.clear()
+            upAdapter()
             bookSourceList.clear()
-            if (searchGroup.isNullOrBlank()) {
-                bookSourceList.addAll(App.db.bookSourceDao.allEnabled)
+            if (searchGroup.isBlank()) {
+                bookSourceList.addAll(appDb.bookSourceDao.allEnabled)
             } else {
-                bookSourceList.addAll(App.db.bookSourceDao.getEnabledByGroup(searchGroup))
+                bookSourceList.addAll(appDb.bookSourceDao.getEnabledByGroup(searchGroup))
             }
             searchStateData.postValue(true)
             initSearchPool()
@@ -123,24 +127,26 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
             searchIndex++
         }
         val source = bookSourceList[searchIndex]
-        val variableBook = SearchBook()
         val webBook = WebBook(source)
         val task = webBook
-            .searchBook(name, variableBook = variableBook, scope = this, context = searchPool!!)
+            .searchBook(this, name, context = searchPool!!)
             .timeout(60000L)
             .onSuccess(IO) {
                 it.forEach { searchBook ->
-                    if (searchBook.name == name && searchBook.author == author) {
-                        if (searchBook.latestChapterTitle.isNullOrEmpty()) {
-                            if (AppConfig.changeSourceLoadInfo || AppConfig.changeSourceLoadToc) {
-                                loadBookInfo(webBook, searchBook.toBook())
+                    if (searchBook.name == name) {
+                        if ((AppConfig.changeSourceCheckAuthor && searchBook.author.contains(author))
+                            || !AppConfig.changeSourceCheckAuthor
+                        ) {
+                            if (searchBook.latestChapterTitle.isNullOrEmpty()) {
+                                if (AppConfig.changeSourceLoadInfo || AppConfig.changeSourceLoadToc) {
+                                    loadBookInfo(webBook, searchBook.toBook())
+                                } else {
+                                    searchFinish(searchBook)
+                                }
                             } else {
                                 searchFinish(searchBook)
                             }
-                        } else {
-                            searchFinish(searchBook)
                         }
-                        return@onSuccess
                     }
                 }
             }
@@ -162,7 +168,7 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
     }
 
     private fun loadBookInfo(webBook: WebBook, book: Book) {
-        webBook.getBookInfo(book, this)
+        webBook.getBookInfo(this, book)
             .onSuccess {
                 if (context.getPrefBoolean(PreferKey.changeSourceLoadToc)) {
                     loadBookToc(webBook, book)
@@ -173,12 +179,12 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
                     searchFinish(searchBook)
                 }
             }.onError {
-                debug { context.getString(R.string.error_get_book_info) }
+                it.printStackTrace()
             }
     }
 
     private fun loadBookToc(webBook: WebBook, book: Book) {
-        webBook.getChapterList(book, this)
+        webBook.getChapterList(this, book)
             .onSuccess(IO) { chapters ->
                 if (chapters.isNotEmpty()) {
                     book.latestChapterTitle = chapters.last().title
@@ -186,7 +192,7 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
                     searchFinish(searchBook)
                 }
             }.onError {
-                debug { context.getString(R.string.error_get_chapter_list) }
+                it.printStackTrace()
             }
     }
 
@@ -200,7 +206,7 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
                 loadDbSearchBook()
             } else {
                 val items =
-                    App.db.searchBookDao.getChangeSourceSearch(name, author, screenKey, searchGroup)
+                    appDb.searchBookDao.getChangeSourceSearch(name, author, screenKey, searchGroup)
                 searchBooks.clear()
                 searchBooks.addAll(items)
                 upAdapter()
@@ -225,9 +231,9 @@ class ChangeSourceViewModel(application: Application) : BaseViewModel(applicatio
 
     fun disableSource(searchBook: SearchBook) {
         execute {
-            App.db.bookSourceDao.getBookSource(searchBook.origin)?.let { source ->
+            appDb.bookSourceDao.getBookSource(searchBook.origin)?.let { source ->
                 source.enabled = false
-                App.db.bookSourceDao.update(source)
+                appDb.bookSourceDao.update(source)
             }
             searchBooks.remove(searchBook)
             upAdapter()

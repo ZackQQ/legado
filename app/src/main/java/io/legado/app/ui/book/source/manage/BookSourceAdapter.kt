@@ -12,24 +12,67 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import io.legado.app.R
 import io.legado.app.base.adapter.ItemViewHolder
-import io.legado.app.base.adapter.SimpleRecyclerAdapter
+import io.legado.app.base.adapter.RecyclerAdapter
 import io.legado.app.data.entities.BookSource
 import io.legado.app.databinding.ItemBookSourceBinding
 import io.legado.app.lib.theme.backgroundColor
 import io.legado.app.ui.widget.recycler.DragSelectTouchHelper
 import io.legado.app.ui.widget.recycler.ItemTouchCallback.Callback
+import io.legado.app.utils.ColorUtils
 import io.legado.app.utils.invisible
 import io.legado.app.utils.visible
-import org.jetbrains.anko.sdk27.listeners.onClick
+
 
 class BookSourceAdapter(context: Context, val callBack: CallBack) :
-    SimpleRecyclerAdapter<BookSource, ItemBookSourceBinding>(context),
+    RecyclerAdapter<BookSource, ItemBookSourceBinding>(context),
     Callback {
 
-    override val diffItemCallback: DiffUtil.ItemCallback<BookSource>
-        get() = DiffCallBack()
-
     private val selected = linkedSetOf<BookSource>()
+
+    val diffItemCallback: DiffUtil.ItemCallback<BookSource>
+        get() = object : DiffUtil.ItemCallback<BookSource>() {
+
+            override fun areItemsTheSame(oldItem: BookSource, newItem: BookSource): Boolean {
+                return oldItem.bookSourceUrl == newItem.bookSourceUrl
+            }
+
+            override fun areContentsTheSame(oldItem: BookSource, newItem: BookSource): Boolean {
+                if (oldItem.bookSourceName != newItem.bookSourceName)
+                    return false
+                if (oldItem.bookSourceGroup != newItem.bookSourceGroup)
+                    return false
+                if (oldItem.enabled != newItem.enabled)
+                    return false
+                if (oldItem.enabledExplore != newItem.enabledExplore
+                    || oldItem.exploreUrl != newItem.exploreUrl
+                ) {
+                    return false
+                }
+                return true
+            }
+
+            override fun getChangePayload(oldItem: BookSource, newItem: BookSource): Any? {
+                val payload = Bundle()
+                if (oldItem.bookSourceName != newItem.bookSourceName) {
+                    payload.putString("name", newItem.bookSourceName)
+                }
+                if (oldItem.bookSourceGroup != newItem.bookSourceGroup) {
+                    payload.putString("group", newItem.bookSourceGroup)
+                }
+                if (oldItem.enabled != newItem.enabled) {
+                    payload.putBoolean("enabled", newItem.enabled)
+                }
+                if (oldItem.enabledExplore != newItem.enabledExplore
+                    || oldItem.exploreUrl != newItem.exploreUrl
+                ) {
+                    payload.putBoolean("showExplore", true)
+                }
+                if (payload.isEmpty) {
+                    return null
+                }
+                return payload
+            }
+        }
 
     override fun getViewBinding(parent: ViewGroup): ItemBookSourceBinding {
         return ItemBookSourceBinding.inflate(inflater, parent, false)
@@ -44,7 +87,7 @@ class BookSourceAdapter(context: Context, val callBack: CallBack) :
         with(binding) {
             val payload = payloads.getOrNull(0) as? Bundle
             if (payload == null) {
-                root.setBackgroundColor(context.backgroundColor)
+                root.setBackgroundColor(ColorUtils.withAlpha(context.backgroundColor, 0.5f))
                 if (item.bookSourceGroup.isNullOrEmpty()) {
                     cbBookSource.text = item.bookSourceName
                 } else {
@@ -58,14 +101,6 @@ class BookSourceAdapter(context: Context, val callBack: CallBack) :
                 payload.keySet().map {
                     when (it) {
                         "selected" -> cbBookSource.isChecked = selected.contains(item)
-                        "name", "group" -> if (item.bookSourceGroup.isNullOrEmpty()) {
-                            cbBookSource.text = item.bookSourceName
-                        } else {
-                            cbBookSource.text =
-                                String.format("%s (%s)", item.bookSourceName, item.bookSourceGroup)
-                        }
-                        "enabled" -> swtEnabled.isChecked = payload.getBoolean(it)
-                        "showExplore" -> upShowExplore(ivExplore, item)
                     }
                 }
             }
@@ -75,34 +110,42 @@ class BookSourceAdapter(context: Context, val callBack: CallBack) :
     override fun registerListener(holder: ItemViewHolder, binding: ItemBookSourceBinding) {
         binding.apply {
             swtEnabled.setOnCheckedChangeListener { view, checked ->
-                getItem(holder.layoutPosition)?.let {
-                    if (view.isPressed) {
-                        it.enabled = checked
-                        callBack.update(it)
+                if (view.isPressed) {
+                    getItem(holder.layoutPosition)?.let {
+                        if (view.isPressed) {
+                            it.enabled = checked
+                            callBack.update(it)
+                        }
                     }
                 }
             }
             cbBookSource.setOnCheckedChangeListener { view, checked ->
-                getItem(holder.layoutPosition)?.let {
-                    if (view.isPressed) {
-                        if (checked) {
-                            selected.add(it)
-                        } else {
-                            selected.remove(it)
+                if (view.isPressed) {
+                    getItem(holder.layoutPosition)?.let {
+                        if (view.isPressed) {
+                            if (checked) {
+                                selected.add(it)
+                            } else {
+                                selected.remove(it)
+                            }
+                            callBack.upCountView()
                         }
-                        callBack.upCountView()
                     }
                 }
             }
-            ivEdit.onClick {
+            ivEdit.setOnClickListener {
                 getItem(holder.layoutPosition)?.let {
                     callBack.edit(it)
                 }
             }
-            ivMenuMore.onClick {
+            ivMenuMore.setOnClickListener {
                 showMenu(ivMenuMore, holder.layoutPosition)
             }
         }
+    }
+
+    override fun onCurrentListChanged() {
+        callBack.upCountView()
     }
 
     private fun showMenu(view: View, position: Int) {
@@ -123,6 +166,7 @@ class BookSourceAdapter(context: Context, val callBack: CallBack) :
             when (menuItem.itemId) {
                 R.id.menu_top -> callBack.toTop(source)
                 R.id.menu_bottom -> callBack.toBottom(source)
+                R.id.menu_debug_source -> callBack.debug(source)
                 R.id.menu_del -> callBack.del(source)
                 R.id.menu_enable_explore -> {
                     callBack.update(source.copy(enabledExplore = !source.enabledExplore))
@@ -179,7 +223,7 @@ class BookSourceAdapter(context: Context, val callBack: CallBack) :
         return selection.sortedBy { it.customOrder }
     }
 
-    override fun onMove(srcPosition: Int, targetPosition: Int): Boolean {
+    override fun swap(srcPosition: Int, targetPosition: Int): Boolean {
         val srcItem = getItem(srcPosition)
         val targetItem = getItem(targetPosition)
         if (srcItem != null && targetItem != null) {
@@ -237,6 +281,7 @@ class BookSourceAdapter(context: Context, val callBack: CallBack) :
         fun update(vararg bookSource: BookSource)
         fun toTop(bookSource: BookSource)
         fun toBottom(bookSource: BookSource)
+        fun debug(bookSource: BookSource)
         fun upOrder()
         fun upCountView()
     }

@@ -11,16 +11,15 @@ import io.legado.app.App
 import io.legado.app.R
 import io.legado.app.base.BaseActivity
 import io.legado.app.constant.AppConst.timeFormat
+import io.legado.app.data.entities.Bookmark
 import io.legado.app.databinding.ViewBookPageBinding
 import io.legado.app.help.ReadBookConfig
 import io.legado.app.help.ReadTipConfig
 import io.legado.app.service.help.ReadBook
-import io.legado.app.ui.book.read.page.entities.PageData
 import io.legado.app.ui.book.read.page.entities.TextPage
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.widget.BatteryView
 import io.legado.app.utils.*
-import org.jetbrains.anko.topPadding
 import java.util.*
 
 /**
@@ -97,9 +96,9 @@ class PageView(context: Context) : FrameLayout(context) {
     /**
      * 显示状态栏时隐藏header
      */
-    fun upStatusBar() {
-        binding.vwStatusBar.topPadding = context.statusBarHeight
-        binding.vwStatusBar.isGone =
+    fun upStatusBar() = with(binding.vwStatusBar) {
+        setPadding(paddingLeft, context.statusBarHeight, paddingRight, paddingBottom)
+        isGone =
             ReadBookConfig.hideStatusBar || (activity as? BaseActivity<*>)?.isInMultiWindow == true
     }
 
@@ -211,12 +210,12 @@ class PageView(context: Context) : FrameLayout(context) {
         }
     }
 
-    fun setContent(pageData: PageData, resetPageOffset: Boolean = true) {
-        setProgress(pageData.textPage)
+    fun setContent(textPage: TextPage, resetPageOffset: Boolean = true) {
+        setProgress(textPage)
         if (resetPageOffset) {
             resetPageOffset()
         }
-        binding.contentTextView.setContent(pageData)
+        binding.contentTextView.setContent(textPage)
     }
 
     fun setContentDescription(content: String) {
@@ -269,6 +268,10 @@ class PageView(context: Context) : FrameLayout(context) {
 
     fun cancelSelect() {
         binding.contentTextView.cancelSelect()
+    }
+
+    fun createBookmark(): Bookmark? {
+        return binding.contentTextView.createBookmark()
     }
 
     val selectedText: String get() = binding.contentTextView.selectedText

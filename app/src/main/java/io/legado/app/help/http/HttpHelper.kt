@@ -1,8 +1,10 @@
 package io.legado.app.help.http
 
-import io.legado.app.utils.msg
 import kotlinx.coroutines.suspendCancellableCoroutine
-import okhttp3.*
+import okhttp3.ConnectionSpec
+import okhttp3.Credentials
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.util.concurrent.ConcurrentHashMap
@@ -34,7 +36,6 @@ object HttpHelper {
             .connectionSpecs(specs)
             .followRedirects(true)
             .followSslRedirects(true)
-            .protocols(listOf(Protocol.HTTP_1_1))
             .addInterceptor(getHeaderInterceptor())
 
         builder.build()
@@ -111,7 +112,7 @@ object HttpHelper {
 
                 override fun onError(error: Throwable) {
                     if (!block.isCompleted)
-                        block.resume(StrResponse(params.url, error.msg))
+                        block.cancel(error)
                 }
             }
             webView.load(params)

@@ -1,35 +1,31 @@
 package io.legado.app.ui.book.local
 
-import android.app.Activity
-import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.view.Menu
 import android.view.MenuItem
+import androidx.activity.viewModels
 import androidx.appcompat.widget.PopupMenu
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.LiveData
 import androidx.recyclerview.widget.LinearLayoutManager
-import io.legado.app.App
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
+import io.legado.app.data.appDb
 import io.legado.app.databinding.ActivityImportBookBinding
 import io.legado.app.help.AppConfig
-import io.legado.app.help.permission.Permissions
-import io.legado.app.help.permission.PermissionsCompat
+import io.legado.app.lib.permission.Permissions
+import io.legado.app.lib.permission.PermissionsCompat
 import io.legado.app.lib.theme.backgroundColor
-import io.legado.app.ui.filepicker.FilePicker
-import io.legado.app.ui.filepicker.FilePickerDialog
+import io.legado.app.ui.document.FilePicker
 import io.legado.app.ui.widget.SelectActionBar
 import io.legado.app.utils.*
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.jetbrains.anko.sdk27.listeners.onClick
-import org.jetbrains.anko.toast
 import java.io.File
 import java.util.*
 
@@ -37,20 +33,30 @@ import java.util.*
  * 导入本地书籍界面
  */
 class ImportBookActivity : VMBaseActivity<ActivityImportBookBinding, ImportBookViewModel>(),
-    FilePickerDialog.CallBack,
     PopupMenu.OnMenuItemClickListener,
-    SelectActionBar.CallBack,
-    ImportBookAdapter.CallBack {
-    private val requestCodeSelectFolder = 342
+    ImportBookAdapter.CallBack,
+    SelectActionBar.CallBack {
     private var rootDoc: DocumentFile? = null
     private val subDocs = arrayListOf<DocumentFile>()
     private lateinit var adapter: ImportBookAdapter
     private var localUriLiveData: LiveData<List<String>>? = null
     private var sdPath = FileUtils.getSdCardPath()
     private var path = sdPath
+    private val selectFolder = registerForActivityResult(FilePicker()) { uri ->
+        uri ?: return@registerForActivityResult
+        if (uri.isContentScheme()) {
+            AppConfig.importBookPath = uri.toString()
+            initRootDoc()
+        } else {
+            uri.path?.let { path ->
+                AppConfig.importBookPath = path
+                initRootDoc()
+            }
+        }
+    }
 
     override val viewModel: ImportBookViewModel
-        get() = getViewModel(ImportBookViewModel::class.java)
+            by viewModels()
 
     override fun getViewBinding(): ActivityImportBookBinding {
         return ActivityImportBookBinding.inflate(layoutInflater)
@@ -70,7 +76,7 @@ class ImportBookActivity : VMBaseActivity<ActivityImportBookBinding, ImportBookV
 
     override fun onCompatOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.menu_select_folder -> FilePicker.selectFolder(this, requestCodeSelectFolder)
+            R.id.menu_select_folder -> selectFolder.launch(null)
             R.id.menu_scan_folder -> scanFolder()
         }
         return super.onCompatOptionsItemSelected(item)
@@ -112,14 +118,14 @@ class ImportBookActivity : VMBaseActivity<ActivityImportBookBinding, ImportBookV
     }
 
     private fun initEvent() {
-        binding.tvGoBack.onClick {
+        binding.tvGoBack.setOnClickListener {
             goBackDir()
         }
     }
 
     private fun initData() {
         localUriLiveData?.removeObservers(this)
-        localUriLiveData = App.db.bookDao.observeLocalUri()
+        localUriLiveData = appDb.bookDao.observeLocalUri()
         localUriLiveData?.observe(this, {
             adapter.upBookHas(it)
         })
@@ -130,14 +136,14 @@ class ImportBookActivity : VMBaseActivity<ActivityImportBookBinding, ImportBookV
         when {
             lastPath.isNullOrEmpty() -> {
                 binding.tvEmptyMsg.visible()
-                FilePicker.selectFolder(this, requestCodeSelectFolder)
+                selectFolder.launch(null)
             }
             lastPath.isContentScheme() -> {
                 val rootUri = Uri.parse(lastPath)
                 rootDoc = DocumentFile.fromTreeUri(this, rootUri)
                 if (rootDoc == null) {
                     binding.tvEmptyMsg.visible()
-                    FilePicker.selectFolder(this, requestCodeSelectFolder)
+                    selectFolder.launch(null)
                 } else {
                     subDocs.clear()
                     upPath()
@@ -145,7 +151,7 @@ class ImportBookActivity : VMBaseActivity<ActivityImportBookBinding, ImportBookV
             }
             Build.VERSION.SDK_INT > Build.VERSION_CODES.Q -> {
                 binding.tvEmptyMsg.visible()
-                FilePicker.selectFolder(this, requestCodeSelectFolder)
+                selectFolder.launch(null)
             }
             else -> {
                 binding.tvEmptyMsg.visible()
@@ -196,7 +202,7 @@ class ImportBookActivity : VMBaseActivity<ActivityImportBookBinding, ImportBookV
             }
             docList.sortWith(compareBy({ !it.isDir }, { it.name }))
             withContext(Main) {
-                adapter.setData(docList)
+                adapter.setItems(docList)
             }
         }
     }
@@ -232,7 +238,7 @@ class ImportBookActivity : VMBaseActivity<ActivityImportBookBinding, ImportBookV
             }
         }
         docList.sortWith(compareBy({ !it.isDir }, { it.name }))
-        adapter.setData(docList)
+        adapter.setItems(docList)
     }
 
     /**
@@ -253,7 +259,7 @@ class ImportBookActivity : VMBaseActivity<ActivityImportBookBinding, ImportBookV
         } ?: let {
             val lastPath = AppConfig.importBookPath
             if (lastPath.isNullOrEmpty()) {
-                toast(R.string.empty_msg_import_book)
+                toastOnUi(R.string.empty_msg_import_book)
             } else {
                 adapter.clearItems()
                 val file = File(path)
@@ -272,29 +278,6 @@ class ImportBookActivity : VMBaseActivity<ActivityImportBookBinding, ImportBookV
     private val find: (docItem: DocItem) -> Unit = {
         launch {
             adapter.addItem(it)
-        }
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        when (requestCode) {
-            requestCodeSelectFolder -> if (resultCode == Activity.RESULT_OK) {
-                data?.data?.let { uri ->
-                    if (uri.isContentScheme()) {
-                        contentResolver.takePersistableUriPermission(
-                            uri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                        )
-                        AppConfig.importBookPath = uri.toString()
-                        initRootDoc()
-                    } else {
-                        uri.path?.let { path ->
-                            AppConfig.importBookPath = path
-                            initRootDoc()
-                        }
-                    }
-                }
-            }
         }
     }
 

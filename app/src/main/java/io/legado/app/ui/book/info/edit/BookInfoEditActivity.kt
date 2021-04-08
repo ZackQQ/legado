@@ -1,32 +1,36 @@
 package io.legado.app.ui.book.info.edit
 
 import android.app.Activity
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.documentfile.provider.DocumentFile
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
 import io.legado.app.data.entities.Book
 import io.legado.app.databinding.ActivityBookInfoEditBinding
-import io.legado.app.help.permission.Permissions
-import io.legado.app.help.permission.PermissionsCompat
+import io.legado.app.lib.permission.Permissions
+import io.legado.app.lib.permission.PermissionsCompat
 import io.legado.app.ui.book.changecover.ChangeCoverDialog
 import io.legado.app.utils.*
-import org.jetbrains.anko.sdk27.listeners.onClick
-import org.jetbrains.anko.toast
 import java.io.File
 
 class BookInfoEditActivity :
     VMBaseActivity<ActivityBookInfoEditBinding, BookInfoEditViewModel>(),
     ChangeCoverDialog.CallBack {
 
-    private val resultSelectCover = 132
+    private val selectCoverResult =
+        registerForActivityResult(ActivityResultContracts.GetContent()) {
+            it?.let { uri ->
+                coverChangeTo(uri)
+            }
+        }
 
     override val viewModel: BookInfoEditViewModel
-        get() = getViewModel(BookInfoEditViewModel::class.java)
+            by viewModels()
 
     override fun getViewBinding(): ActivityBookInfoEditBinding {
         return ActivityBookInfoEditBinding.inflate(layoutInflater)
@@ -55,15 +59,15 @@ class BookInfoEditActivity :
     }
 
     private fun initEvent() = with(binding) {
-        tvChangeCover.onClick {
+        tvChangeCover.setOnClickListener {
             viewModel.bookData.value?.let {
                 ChangeCoverDialog.show(supportFragmentManager, it.name, it.author)
             }
         }
-        tvSelectCover.onClick {
-            selectImage()
+        tvSelectCover.setOnClickListener {
+            selectCoverResult.launch("image/*")
         }
-        tvRefreshCover.onClick {
+        tvRefreshCover.setOnClickListener {
             viewModel.book?.customCoverUrl = tieCoverUrl.text?.toString()
             upCover()
         }
@@ -97,13 +101,6 @@ class BookInfoEditActivity :
         }
     }
 
-    private fun selectImage() {
-        val intent = Intent(Intent.ACTION_GET_CONTENT)
-        intent.addCategory(Intent.CATEGORY_OPENABLE)
-        intent.type = "image/*"
-        startActivityForResult(intent, resultSelectCover)
-    }
-
     override fun coverChangeTo(coverUrl: String) {
         viewModel.book?.customCoverUrl = coverUrl
         binding.tieCoverUrl.setText(coverUrl)
@@ -121,7 +118,7 @@ class BookInfoEditActivity :
                 }.getOrNull()?.let { byteArray ->
                     file.writeBytes(byteArray)
                     coverChangeTo(file.absolutePath)
-                } ?: toast("获取文件出错")
+                } ?: toastOnUi("获取文件出错")
             }
         } else {
             PermissionsCompat.Builder(this)
@@ -145,16 +142,4 @@ class BookInfoEditActivity :
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        when (requestCode) {
-            resultSelectCover -> {
-                if (resultCode == Activity.RESULT_OK) {
-                    data?.data?.let { uri ->
-                        coverChangeTo(uri)
-                    }
-                }
-            }
-        }
-    }
 }

@@ -40,6 +40,7 @@ class AnalyzeUrl(
     var useWebView: Boolean = false,
     val book: BaseBook? = null,
     val chapter: BookChapter? = null,
+    private val ruleData: RuleDataInterface? = null,
     headerMapF: Map<String, String>? = null
 ) : JsExtensions {
     companion object {
@@ -266,12 +267,25 @@ class AnalyzeUrl(
     }
 
     fun put(key: String, value: String): String {
-        book?.putVariable(key, value)
+        chapter?.putVariable(key, value)
+            ?: book?.putVariable(key, value)
+            ?: ruleData?.putVariable(key, value)
         return value
     }
 
     fun get(key: String): String {
-        return book?.variableMap?.get(key) ?: ""
+        when (key) {
+            "bookName" -> book?.let {
+                return it.name
+            }
+            "title" -> chapter?.let {
+                return it.title
+            }
+        }
+        return chapter?.variableMap?.get(key)
+            ?: book?.variableMap?.get(key)
+            ?: ruleData?.variableMap?.get(key)
+            ?: ""
     }
 
     suspend fun getStrResponse(
@@ -295,7 +309,7 @@ class AnalyzeUrl(
         }
         return when (method) {
             RequestMethod.POST -> {
-                if (fieldMap.isNotEmpty()) {
+                if (fieldMap.isNotEmpty() || body.isNullOrBlank()) {
                     RxHttp.postForm(url)
                         .setAssemblyEnabled(false)
                         .setOkClient(HttpHelper.getProxyClient(proxy))
@@ -324,7 +338,7 @@ class AnalyzeUrl(
         setCookie(tag)
         return when (method) {
             RequestMethod.POST -> {
-                if (fieldMap.isNotEmpty()) {
+                if (fieldMap.isNotEmpty() || body.isNullOrBlank()) {
                     RxHttp.postForm(url)
                         .setAssemblyEnabled(false)
                         .setOkClient(HttpHelper.getProxyClient(proxy))
@@ -344,6 +358,7 @@ class AnalyzeUrl(
                 .setAssemblyEnabled(false)
                 .setOkClient(HttpHelper.getProxyClient(proxy))
                 .addAllEncoded(fieldMap)
+                .addAllHeader(headerMap)
                 .toByteArray().await()
         }
     }

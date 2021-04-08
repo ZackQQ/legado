@@ -10,20 +10,17 @@ import android.view.MenuItem
 import android.view.ViewTreeObserver
 import android.widget.EditText
 import android.widget.PopupWindow
+import androidx.activity.viewModels
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
 import io.legado.app.constant.AppConst
-import io.legado.app.constant.EventBus
 import io.legado.app.data.entities.ReplaceRule
 import io.legado.app.databinding.ActivityReplaceEditBinding
+import io.legado.app.lib.dialogs.selector
 import io.legado.app.ui.widget.KeyboardToolPop
 import io.legado.app.ui.widget.dialog.TextDialog
-import io.legado.app.utils.getViewModel
-import io.legado.app.utils.postEvent
-import org.jetbrains.anko.displayMetrics
-import org.jetbrains.anko.sdk27.listeners.onClick
-import org.jetbrains.anko.selector
-import org.jetbrains.anko.toast
+import io.legado.app.utils.getSize
+import io.legado.app.utils.toastOnUi
 import kotlin.math.abs
 
 /**
@@ -36,20 +33,21 @@ class ReplaceEditActivity :
 
     companion object {
 
-        fun show(
+        fun startIntent(
             context: Context,
             id: Long = -1,
             pattern: String? = null,
             isRegex: Boolean = false,
             scope: String? = null
-        ) {
+        ): Intent {
             val intent = Intent(context, ReplaceEditActivity::class.java)
             intent.putExtra("id", id)
             intent.putExtra("pattern", pattern)
             intent.putExtra("isRegex", isRegex)
             intent.putExtra("scope", scope)
-            context.startActivity(intent)
+            return intent
         }
+
     }
 
     override fun getViewBinding(): ActivityReplaceEditBinding {
@@ -57,7 +55,7 @@ class ReplaceEditActivity :
     }
 
     override val viewModel: ReplaceEditViewModel
-        get() = getViewModel(ReplaceEditViewModel::class.java)
+            by viewModels()
 
     private var mSoftKeyboardTool: PopupWindow? = null
     private var mIsSoftKeyBoardShowing = false
@@ -68,7 +66,7 @@ class ReplaceEditActivity :
         viewModel.initData(intent) {
             upReplaceView(it)
         }
-        binding.ivHelp.onClick {
+        binding.ivHelp.setOnClickListener {
             showRegexHelp()
         }
     }
@@ -83,10 +81,10 @@ class ReplaceEditActivity :
             R.id.menu_save -> {
                 val rule = getReplaceRule()
                 if (!rule.isValid()) {
-                    toast(R.string.replace_rule_invalid)
+                    toastOnUi(R.string.replace_rule_invalid)
                 } else {
                     viewModel.save(rule) {
-                        postEvent(EventBus.REPLACE_RULE_SAVE, "")
+                        setResult(RESULT_OK)
                         finish()
                     }
                 }
@@ -171,7 +169,7 @@ class ReplaceEditActivity :
         val rect = Rect()
         // 获取当前页面窗口的显示范围
         window.decorView.getWindowVisibleDisplayFrame(rect)
-        val screenHeight = this.displayMetrics.heightPixels
+        val screenHeight = this.getSize().heightPixels
         val keyboardHeight = screenHeight - rect.bottom // 输入法的高度
         val preShowing = mIsSoftKeyBoardShowing
         if (abs(keyboardHeight) > screenHeight / 5) {

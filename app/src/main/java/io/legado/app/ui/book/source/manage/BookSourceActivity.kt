@@ -1,24 +1,23 @@
 package io.legado.app.ui.book.source.manage
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.SubMenu
+import androidx.activity.viewModels
 import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.SearchView
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.LiveData
 import androidx.recyclerview.widget.ItemTouchHelper
-import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
-import io.legado.app.App
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
 import io.legado.app.constant.AppPattern
 import io.legado.app.constant.EventBus
+import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSource
 import io.legado.app.databinding.ActivityBookSourceBinding
 import io.legado.app.databinding.DialogEditTextBinding
@@ -29,41 +28,66 @@ import io.legado.app.lib.theme.ATH
 import io.legado.app.lib.theme.primaryTextColor
 import io.legado.app.service.help.CheckSource
 import io.legado.app.ui.association.ImportBookSourceActivity
+import io.legado.app.ui.book.source.debug.BookSourceDebugActivity
 import io.legado.app.ui.book.source.edit.BookSourceEditActivity
-import io.legado.app.ui.filepicker.FilePicker
-import io.legado.app.ui.filepicker.FilePickerDialog
-import io.legado.app.ui.qrcode.QrCodeActivity
+import io.legado.app.ui.document.FilePicker
+import io.legado.app.ui.document.FilePickerParam
+import io.legado.app.ui.qrcode.QrCodeResult
 import io.legado.app.ui.widget.SelectActionBar
 import io.legado.app.ui.widget.dialog.TextDialog
 import io.legado.app.ui.widget.recycler.DragSelectTouchHelper
 import io.legado.app.ui.widget.recycler.ItemTouchCallback
 import io.legado.app.ui.widget.recycler.VerticalDivider
 import io.legado.app.utils.*
-import org.jetbrains.anko.startActivity
-import org.jetbrains.anko.startActivityForResult
-import org.jetbrains.anko.toast
 import java.io.File
 
 class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceViewModel>(),
     PopupMenu.OnMenuItemClickListener,
     BookSourceAdapter.CallBack,
-    FilePickerDialog.CallBack,
     SelectActionBar.CallBack,
     SearchView.OnQueryTextListener {
     override val viewModel: BookSourceViewModel
-        get() = getViewModel(BookSourceViewModel::class.java)
+            by viewModels()
     private val importRecordKey = "bookSourceRecordKey"
-    private val qrRequestCode = 101
-    private val importRequestCode = 132
-    private val exportRequestCode = 65
     private lateinit var adapter: BookSourceAdapter
     private lateinit var searchView: SearchView
     private var bookSourceLiveDate: LiveData<List<BookSource>>? = null
-    private var groups = linkedSetOf<String>()
+    private val groups = linkedSetOf<String>()
     private var groupMenu: SubMenu? = null
     private var sort = Sort.Default
     private var sortAscending = true
     private var snackBar: Snackbar? = null
+    private val qrResult = registerForActivityResult(QrCodeResult()) {
+        it ?: return@registerForActivityResult
+        startActivity<ImportBookSourceActivity> {
+            putExtra("source", it)
+        }
+    }
+    private val importDoc = registerForActivityResult(FilePicker()) { uri ->
+        uri ?: return@registerForActivityResult
+        try {
+            uri.readText(this)?.let {
+                val dataKey = IntentDataHelp.putData(it)
+                startActivity<ImportBookSourceActivity> {
+                    putExtra("dataKey", dataKey)
+                }
+            }
+        } catch (e: Exception) {
+            toastOnUi("readTextError:${e.localizedMessage}")
+        }
+    }
+    private val exportDir = registerForActivityResult(FilePicker()) { uri ->
+        uri ?: return@registerForActivityResult
+        if (uri.isContentScheme()) {
+            DocumentFile.fromTreeUri(this, uri)?.let {
+                viewModel.exportSelection(adapter.getSelection(), it)
+            }
+        } else {
+            uri.path?.let {
+                viewModel.exportSelection(adapter.getSelection(), File(it))
+            }
+        }
+    }
 
     override fun getViewBinding(): ActivityBookSourceBinding {
         return ActivityBookSourceBinding.inflate(layoutInflater)
@@ -97,15 +121,19 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
     override fun onCompatOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.menu_add_book_source -> startActivity<BookSourceEditActivity>()
-            R.id.menu_import_source_qr -> startActivityForResult<QrCodeActivity>(qrRequestCode)
+            R.id.menu_import_qr -> qrResult.launch(null)
             R.id.menu_share_source -> viewModel.shareSelection(adapter.getSelection()) {
                 startActivity(Intent.createChooser(it, getString(R.string.share_selected_source)))
             }
             R.id.menu_group_manage ->
                 GroupManageDialog().show(supportFragmentManager, "groupManage")
-            R.id.menu_import_source_local -> FilePicker
-                .selectFile(this, importRequestCode, allowExtensions = arrayOf("txt", "json"))
-            R.id.menu_import_source_onLine -> showImportDialog()
+            R.id.menu_import_local -> importDoc.launch(
+                FilePickerParam(
+                    mode = FilePicker.FILE,
+                    allowExtensions = arrayOf("txt", "json")
+                )
+            )
+            R.id.menu_import_onLine -> showImportDialog()
             R.id.menu_sort_manual -> {
                 item.isChecked = true
                 sortCheck(Sort.Default)
@@ -131,6 +159,11 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
                 sortCheck(Sort.Update)
                 initLiveDataBookSource(searchView.query?.toString())
             }
+            R.id.menu_sort_enable -> {
+                item.isChecked = true
+                sortCheck(Sort.Enable)
+                initLiveDataBookSource(searchView.query?.toString())
+            }
             R.id.menu_enabled_group -> {
                 searchView.setQuery(getString(R.string.enabled), true)
             }
@@ -140,19 +173,18 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
             R.id.menu_help -> showHelp()
         }
         if (item.groupId == R.id.source_group) {
-            searchView.setQuery(item.title, true)
+            searchView.setQuery("group:${item.title}", true)
         }
         return super.onCompatOptionsItemSelected(item)
     }
 
     private fun initRecyclerView() {
         ATH.applyEdgeEffectColor(binding.recyclerView)
-        binding.recyclerView.layoutManager = LinearLayoutManager(this)
         binding.recyclerView.addItemDecoration(VerticalDivider(this))
         adapter = BookSourceAdapter(this, this)
         binding.recyclerView.adapter = adapter
         // When this page is opened, it is in selection mode
-        val dragSelectTouchHelper: DragSelectTouchHelper =
+        val dragSelectTouchHelper =
             DragSelectTouchHelper(adapter.dragSelectCallback).setSlideArea(16, 50)
         dragSelectTouchHelper.attachToRecyclerView(binding.recyclerView)
         dragSelectTouchHelper.activeSlideSelect()
@@ -174,41 +206,59 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
         bookSourceLiveDate?.removeObservers(this)
         bookSourceLiveDate = when {
             searchKey.isNullOrEmpty() -> {
-                App.db.bookSourceDao.liveDataAll()
+                appDb.bookSourceDao.liveDataAll()
             }
             searchKey == getString(R.string.enabled) -> {
-                App.db.bookSourceDao.liveDataEnabled()
+                appDb.bookSourceDao.liveDataEnabled()
             }
             searchKey == getString(R.string.disabled) -> {
-                App.db.bookSourceDao.liveDataDisabled()
+                appDb.bookSourceDao.liveDataDisabled()
+            }
+            searchKey.startsWith("group:") -> {
+                val key = searchKey.substringAfter("group:")
+                appDb.bookSourceDao.liveDataGroupSearch("%$key%")
             }
             else -> {
-                App.db.bookSourceDao.liveDataSearch("%$searchKey%")
+                appDb.bookSourceDao.liveDataSearch("%$searchKey%")
             }
+        }.apply {
+            observe(this@BookSourceActivity, { data ->
+                val sourceList =
+                    if (sortAscending) when (sort) {
+                        Sort.Weight -> data.sortedBy { it.weight }
+                        Sort.Name -> data.sortedWith { o1, o2 ->
+                            o1.bookSourceName.cnCompare(o2.bookSourceName)
+                        }
+                        Sort.Url -> data.sortedBy { it.bookSourceUrl }
+                        Sort.Update -> data.sortedByDescending { it.lastUpdateTime }
+                        Sort.Enable -> data.sortedWith { o1, o2 ->
+                            var sort = -o1.enabled.compareTo(o2.enabled)
+                            if (sort == 0) {
+                                sort = o1.bookSourceName.cnCompare(o2.bookSourceName)
+                            }
+                            sort
+                        }
+                        else -> data
+                    }
+                    else when (sort) {
+                        Sort.Weight -> data.sortedByDescending { it.weight }
+                        Sort.Name -> data.sortedWith { o1, o2 ->
+                            o2.bookSourceName.cnCompare(o1.bookSourceName)
+                        }
+                        Sort.Url -> data.sortedByDescending { it.bookSourceUrl }
+                        Sort.Update -> data.sortedBy { it.lastUpdateTime }
+                        Sort.Enable -> data.sortedWith { o1, o2 ->
+                            var sort = o1.enabled.compareTo(o2.enabled)
+                            if (sort == 0) {
+                                sort = o1.bookSourceName.cnCompare(o2.bookSourceName)
+                            }
+                            sort
+                        }
+                        else -> data.reversed()
+                    }
+                adapter.setItems(sourceList, adapter.diffItemCallback)
+            })
         }
-        bookSourceLiveDate?.observe(this, { data ->
-            val sourceList =
-                if (sortAscending) when (sort) {
-                    Sort.Weight -> data.sortedBy { it.weight }
-                    Sort.Name -> data.sortedWith { o1, o2 ->
-                        o1.bookSourceName.cnCompare(o2.bookSourceName)
-                    }
-                    Sort.Url -> data.sortedBy { it.bookSourceUrl }
-                    Sort.Update -> data.sortedByDescending { it.lastUpdateTime }
-                    else -> data
-                }
-                else when (sort) {
-                    Sort.Weight -> data.sortedByDescending { it.weight }
-                    Sort.Name -> data.sortedWith { o1, o2 ->
-                        o2.bookSourceName.cnCompare(o1.bookSourceName)
-                    }
-                    Sort.Url -> data.sortedByDescending { it.bookSourceUrl }
-                    Sort.Update -> data.sortedBy { it.lastUpdateTime }
-                    else -> data.reversed()
-                }
-            adapter.setItems(sourceList)
-            upCountView()
-        })
     }
 
     private fun showHelp() {
@@ -226,9 +276,9 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
     }
 
     private fun initLiveDataGroup() {
-        App.db.bookSourceDao.liveGroup().observe(this, {
+        appDb.bookSourceDao.liveGroup().observe(this, {
             groups.clear()
-            it.map { group ->
+            it.forEach { group ->
                 groups.addAll(group.splitNotBlank(AppPattern.splitGroupRegex))
             }
             upGroupMenu()
@@ -272,7 +322,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
             R.id.menu_bottom_sel -> viewModel.bottomSource(*adapter.getSelection().toTypedArray())
             R.id.menu_add_group -> selectionAddToGroups()
             R.id.menu_remove_group -> selectionRemoveFromGroups()
-            R.id.menu_export_selection -> FilePicker.selectFolder(this, exportRequestCode)
+            R.id.menu_export_selection -> exportDir.launch(null)
         }
         return true
     }
@@ -283,7 +333,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
             val alertBinding = DialogEditTextBinding.inflate(layoutInflater).apply {
                 editView.setText(CheckSource.keyword)
             }
-            customView = alertBinding.root
+            customView { alertBinding.root }
             okButton {
                 alertBinding.editView.text?.toString()?.let {
                     if (it.isNotEmpty()) {
@@ -304,7 +354,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
                 editView.setFilterValues(groups.toList())
                 editView.dropDownHeight = 180.dp
             }
-            customView = alertBinding.root
+            customView { alertBinding.root }
             okButton {
                 alertBinding.editView.text?.toString()?.let {
                     if (it.isNotEmpty()) {
@@ -324,7 +374,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
                 editView.setFilterValues(groups.toList())
                 editView.dropDownHeight = 180.dp
             }
-            customView = alertBinding.root
+            customView { alertBinding.root }
             okButton {
                 alertBinding.editView.text?.toString()?.let {
                     if (it.isNotEmpty()) {
@@ -352,7 +402,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
             .getAsString(importRecordKey)
             ?.splitNotBlank(",")
             ?.toMutableList() ?: mutableListOf()
-        alert(titleResource = R.string.import_book_source_on_line) {
+        alert(titleResource = R.string.import_on_line) {
             val alertBinding = DialogEditTextBinding.inflate(layoutInflater).apply {
                 editView.setFilterValues(cacheUrls)
                 editView.delCallBack = {
@@ -360,7 +410,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
                     aCache.put(importRecordKey, cacheUrls.joinToString(","))
                 }
             }
-            customView = alertBinding.root
+            customView { alertBinding.root }
             okButton {
                 val text = alertBinding.editView.text?.toString()
                 text?.let {
@@ -368,7 +418,9 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
                         cacheUrls.add(0, it)
                         aCache.put(importRecordKey, cacheUrls.joinToString(","))
                     }
-                    startActivity<ImportBookSourceActivity>(Pair("source", it))
+                    startActivity<ImportBookSourceActivity> {
+                        putExtra("source", it)
+                    }
                 }
             }
             cancelButton()
@@ -391,7 +443,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
             groups.map { group ->
                 if (group.contains("失效")) {
                     searchView.setQuery("失效", true)
-                    toast("发现有失效书源，已为您自动筛选！")
+                    toastOnUi("发现有失效书源，已为您自动筛选！")
                 }
             }
         }
@@ -422,7 +474,9 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
     }
 
     override fun edit(bookSource: BookSource) {
-        startActivity<BookSourceEditActivity>(Pair("data", bookSource.bookSourceUrl))
+        startActivity<BookSourceEditActivity> {
+            putExtra("data", bookSource.bookSourceUrl)
+        }
     }
 
     override fun upOrder() {
@@ -437,39 +491,9 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
         viewModel.bottomSource(bookSource)
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        when (requestCode) {
-            qrRequestCode -> if (resultCode == RESULT_OK) {
-                data?.getStringExtra("result")?.let {
-                    startActivity<ImportBookSourceActivity>("source" to it)
-                }
-            }
-            importRequestCode -> if (resultCode == Activity.RESULT_OK) {
-                data?.data?.let { uri ->
-                    try {
-                        uri.readText(this)?.let {
-                            val dataKey = IntentDataHelp.putData(it)
-                            startActivity<ImportBookSourceActivity>("dataKey" to dataKey)
-                        }
-                    } catch (e: Exception) {
-                        toast("readTextError:${e.localizedMessage}")
-                    }
-                }
-            }
-            exportRequestCode -> {
-                data?.data?.let { uri ->
-                    if (uri.isContentScheme()) {
-                        DocumentFile.fromTreeUri(this, uri)?.let {
-                            viewModel.exportSelection(adapter.getSelection(), it)
-                        }
-                    } else {
-                        uri.path?.let {
-                            viewModel.exportSelection(adapter.getSelection(), File(it))
-                        }
-                    }
-                }
-            }
+    override fun debug(bookSource: BookSource) {
+        startActivity<BookSourceDebugActivity> {
+            putExtra("key", bookSource.bookSourceUrl)
         }
     }
 
@@ -482,6 +506,6 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
     }
 
     enum class Sort {
-        Default, Name, Url, Weight, Update
+        Default, Name, Url, Weight, Update, Enable
     }
 }

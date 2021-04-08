@@ -6,7 +6,6 @@ import android.util.DisplayMetrics
 import android.view.WindowInsets
 import android.view.WindowMetrics
 
-
 fun Activity.getSize(): DisplayMetrics {
     val displayMetrics = DisplayMetrics()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
